@@ -1,0 +1,561 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-09-10 11:18:17.326565",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "season",
+  "posting_date",
+  "slip_no",
+  "is_sync",
+  "column_break_ueyd",
+  "branch",
+  "status",
+  "diesel_allocated",
+  "column_break_jald",
+  "company",
+  "naming_series",
+  "close",
+  "section_break_vpjk",
+  "cane_registration",
+  "crop_variety",
+  "route",
+  "column_break_fpgt",
+  "farmer",
+  "crop_type",
+  "distance",
+  "is_flat_rate",
+  "column_break_whcy",
+  "farmer_name",
+  "area_in_acrs",
+  "circle_office",
+  "column_break_njgz",
+  "survey_number",
+  "is_kisan_card",
+  "village",
+  "state",
+  "section_break_hqhe",
+  "transporter_contract",
+  "transporter",
+  "column_break_nkfy",
+  "harvester_contract",
+  "harvester",
+  "transporter_details_section",
+  "transporter_name",
+  "transporter_vehicle_type",
+  "transporter_gang_type",
+  "column_break_fmlb",
+  "vehicle_no",
+  "trolly_1",
+  "trolly_2",
+  "section_break_usrt",
+  "ht_driver",
+  "column_break_ewgm",
+  "ht_driver_name",
+  "column_break_wzjq",
+  "cart_no",
+  "harvester_details_section",
+  "harvester_name",
+  "harvester_vehicle_type",
+  "column_break_fioo",
+  "harvester_gang_type",
+  "cane_deduction_section",
+  "cane_deduction_type",
+  "column_break_gpwo",
+  "deduction_method",
+  "column_break_zwru",
+  "deduction",
+  "section_break_kjfv",
+  "water_supplier_code",
+  "column_break_lhra",
+  "water_supplier_name",
+  "column_break_ovdr",
+  "water_share",
+  "section_break_sleq",
+  "rope_placement",
+  "section_break_ckyv",
+  "penalty_charges",
+  "section_break_uwuk",
+  "slip_boy",
+  "json",
+  "column_break_yogz",
+  "slip_boy_name",
+  "auto_token_no",
+  "token_date",
+  "token_time",
+  "token_user"
+ ],
+ "fields": [
+  {
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Season",
+   "options": "Season"
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_date",
+   "fieldtype": "Datetime",
+   "label": "Posting Date"
+  },
+  {
+   "fieldname": "slip_no",
+   "fieldtype": "Int",
+   "label": "Slip No"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_sync",
+   "fieldtype": "Check",
+   "label": "Is Sync"
+  },
+  {
+   "fieldname": "column_break_ueyd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "label": "Branch"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "New\nPending Token\nSubmitted Token\nWeight Done\nGross Weight Done",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "diesel_allocated",
+   "fieldtype": "Check",
+   "label": "Diesel Allocated"
+  },
+  {
+   "fieldname": "column_break_jald",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "\nTS/Y.Y./"
+  },
+  {
+   "default": "0",
+   "fieldname": "close",
+   "fieldtype": "Check",
+   "label": "Close"
+  },
+  {
+   "fieldname": "section_break_vpjk",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "cane_registration",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Cane Registration"
+  },
+  {
+   "fetch_from": "cane_registration.crop_variety",
+   "fieldname": "crop_variety",
+   "fieldtype": "Data",
+   "label": "Crop Variety"
+  },
+  {
+   "fetch_from": "cane_registration.route",
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "label": "Route"
+  },
+  {
+   "fieldname": "column_break_fpgt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "cane_registration.farmer",
+   "fieldname": "farmer",
+   "fieldtype": "Data",
+   "label": "Farmer"
+  },
+  {
+   "fetch_from": "cane_registration.crop_type",
+   "fieldname": "crop_type",
+   "fieldtype": "Data",
+   "label": "Crop Type"
+  },
+  {
+   "fetch_from": "cane_registration.distance",
+   "fieldname": "distance",
+   "fieldtype": "Int",
+   "label": "distance"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_flat_rate",
+   "fieldtype": "Check",
+   "label": "Is Flat Rate"
+  },
+  {
+   "fieldname": "column_break_whcy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "cane_registration.farmer_name",
+   "fieldname": "farmer_name",
+   "fieldtype": "Data",
+   "label": "Farmer Name"
+  },
+  {
+   "fetch_from": "cane_registration.area_in_acrs",
+   "fieldname": "area_in_acrs",
+   "fieldtype": "Float",
+   "label": "Area in Acrs"
+  },
+  {
+   "fetch_from": "cane_registration.circle_office",
+   "fieldname": "circle_office",
+   "fieldtype": "Data",
+   "label": "Circle Office"
+  },
+  {
+   "fieldname": "column_break_njgz",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "cane_registration.survey_number",
+   "fieldname": "survey_number",
+   "fieldtype": "Data",
+   "label": "Survey Number"
+  },
+  {
+   "default": "0",
+   "fetch_from": "cane_registration.is_kisan_card",
+   "fieldname": "is_kisan_card",
+   "fieldtype": "Check",
+   "label": "is Kisan Card"
+  },
+  {
+   "fetch_from": "cane_registration.village",
+   "fieldname": "village",
+   "fieldtype": "Data",
+   "label": "Village"
+  },
+  {
+   "fetch_from": "cane_registration.state",
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State"
+  },
+  {
+   "fieldname": "section_break_hqhe",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "transporter_contract",
+   "fieldtype": "Data",
+   "label": "Transporter Contract",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "transporter_contract.transporter",
+   "fieldname": "transporter",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Transporter",
+   "link_filters": "[[\"Supplier\",\"transporter\",\"=\",1]]"
+  },
+  {
+   "fieldname": "column_break_nkfy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "harvester_contract",
+   "fieldtype": "Data",
+   "label": "Harvester Contract",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "harvester_contract.harvester",
+   "fieldname": "harvester",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Harvester",
+   "link_filters": "[[\"Supplier\",\"harvester\",\"=\",1]]"
+  },
+  {
+   "fieldname": "transporter_details_section",
+   "fieldtype": "Section Break",
+   "label": "Transporter Details"
+  },
+  {
+   "fetch_from": "transporter_contract.transporter_name",
+   "fieldname": "transporter_name",
+   "fieldtype": "Data",
+   "label": "Transporter Name"
+  },
+  {
+   "fetch_from": "transporter_contract.vehicle_type",
+   "fieldname": "transporter_vehicle_type",
+   "fieldtype": "Data",
+   "label": "Transporter Vehicle Type"
+  },
+  {
+   "fetch_from": "transporter_contract.gang_type",
+   "fieldname": "transporter_gang_type",
+   "fieldtype": "Data",
+   "label": "Transporter Gang Type"
+  },
+  {
+   "depends_on": "eval:doc.transporter_vehicle_type==\"BULLOCK CART\";",
+   "fieldname": "column_break_fmlb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vehicle_no",
+   "fieldtype": "Data",
+   "label": "Vehicle No.",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trolly_1",
+   "fieldtype": "Data",
+   "label": "Trolly 1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trolly_2",
+   "fieldtype": "Data",
+   "label": "Trolly 2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_usrt",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "ht_driver",
+   "fieldtype": "Data",
+   "label": "HT Driver"
+  },
+  {
+   "fieldname": "column_break_ewgm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "ht_driver.ll_name",
+   "fetch_if_empty": 1,
+   "fieldname": "ht_driver_name",
+   "fieldtype": "Data",
+   "label": "HT Driver Name"
+  },
+  {
+   "fieldname": "column_break_wzjq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cart_no",
+   "fieldtype": "Int",
+   "label": "Cart No"
+  },
+  {
+   "fieldname": "harvester_details_section",
+   "fieldtype": "Section Break",
+   "label": "Harvester Details"
+  },
+  {
+   "fetch_from": "harvester_contract.harvester_name",
+   "fieldname": "harvester_name",
+   "fieldtype": "Data",
+   "label": "Harvester Name"
+  },
+  {
+   "fetch_from": "harvester_contract.vehicle_type",
+   "fieldname": "harvester_vehicle_type",
+   "fieldtype": "Data",
+   "label": "Harvester Vehicle Type"
+  },
+  {
+   "fieldname": "column_break_fioo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "harvester_contract.gang_type",
+   "fieldname": "harvester_gang_type",
+   "fieldtype": "Data",
+   "label": "Harvester Gang Type"
+  },
+  {
+   "fieldname": "cane_deduction_section",
+   "fieldtype": "Section Break",
+   "label": "Cane Deduction"
+  },
+  {
+   "fieldname": "cane_deduction_type",
+   "fieldtype": "Data",
+   "label": "Cane Deduction Type",
+   "link_filters": "[[\"Deduction Type\",\"cane_deduction_type\",\"=\",1]]"
+  },
+  {
+   "fieldname": "column_break_gpwo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deduction_method",
+   "fieldtype": "Select",
+   "label": "Deduction Method",
+   "mandatory_depends_on": "eval:doc.cane_deduction_type",
+   "options": "\nPercentage\nAmount\nAmount Per Ton"
+  },
+  {
+   "fieldname": "column_break_zwru",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deduction",
+   "fieldtype": "Float",
+   "label": "Deduction",
+   "mandatory_depends_on": "eval:doc.cane_deduction_type",
+   "precision": "2"
+  },
+  {
+   "fieldname": "section_break_kjfv",
+   "fieldtype": "Section Break",
+   "label": "Water Supplier Share"
+  },
+  {
+   "fieldname": "water_supplier_code",
+   "fieldtype": "Data",
+   "label": "Water Supplier Code"
+  },
+  {
+   "fieldname": "column_break_lhra",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "water_supplier_code.supplier_name",
+   "fieldname": "water_supplier_name",
+   "fieldtype": "Data",
+   "label": "Water Supplier Name"
+  },
+  {
+   "fieldname": "column_break_ovdr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "water_share",
+   "fieldtype": "Float",
+   "label": "Water Share (%)",
+   "mandatory_depends_on": "eval:doc.water_supplier_code",
+   "precision": "2"
+  },
+  {
+   "fieldname": "section_break_sleq",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "rope_placement",
+   "fieldtype": "Data",
+   "label": "Rope Placement",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_ckyv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "penalty_charges",
+   "fieldtype": "Table",
+   "label": "Trip Sheet Penalty Charges",
+   "options": "Trip Sheet Penalty Charges"
+  },
+  {
+   "fieldname": "section_break_uwuk",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "slip_boy",
+   "fieldtype": "Data",
+   "label": "Slip Boy"
+  },
+  {
+   "fetch_from": "cane_registration.json",
+   "fetch_if_empty": 1,
+   "fieldname": "json",
+   "fieldtype": "Small Text",
+   "label": "Json",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_yogz",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "slip_boy.full_name",
+   "fieldname": "slip_boy_name",
+   "fieldtype": "Data",
+   "label": "Slip Boy Name"
+  },
+  {
+   "fieldname": "auto_token_no",
+   "fieldtype": "Data",
+   "label": "Auto Token No."
+  },
+  {
+   "fieldname": "token_date",
+   "fieldtype": "Date",
+   "label": "Token Date"
+  },
+  {
+   "fieldname": "token_time",
+   "fieldtype": "Time",
+   "label": "Token Time"
+  },
+  {
+   "fieldname": "token_user",
+   "fieldtype": "Data",
+   "label": "Token User"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-10 14:55:51.938186",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Trip Sheet",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

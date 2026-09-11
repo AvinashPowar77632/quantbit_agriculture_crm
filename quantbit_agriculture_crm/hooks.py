@@ -172,6 +172,24 @@ app_license = "mit"
 # 	],
 # }
 
+scheduler_events = {
+    "cron": {
+        "*/1 * * * *": [
+            "quantbit_agriculture_crm.sync.sync_cane_weight_to_remote"
+        ],
+        # "*/5 * * * *": [
+        #     "quantbit_agriculture_crm.sync.sync_other_weight_two"
+        # ],
+        "*/2 * * * *": [
+            "quantbit_agriculture_crm.sync.sync_trip_sheet_remote_to_local"
+        ],
+        "0 */6 * * *": [
+            "quantbit_agriculture_crm.sync.delete_old_error_logs",
+            "quantbit_agriculture_crm.sync.delete_old_activity_logs"
+        ]
+    }
+}
+
 # Testing
 # -------
 

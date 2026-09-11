@@ -1,0 +1,267 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-10 11:25:09.896825",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_vbvn",
+  "season",
+  "column_break_amws",
+  "branch",
+  "column_break_dfcb",
+  "posting_date",
+  "column_break_nrcv",
+  "posting_time",
+  "shift",
+  "column_break_krrd",
+  "edit",
+  "season_day",
+  "column_break_ncnf",
+  "token_no",
+  "factory_day",
+  "section_break_uwte",
+  "transporter_contract",
+  "column_break_rolh",
+  "transporter",
+  "column_break_kesh",
+  "transporter_name",
+  "column_break_bypv",
+  "vehicle_no",
+  "column_break_zrxp",
+  "transporter_vehicle_type",
+  "column_break_ucjq",
+  "transporter_gang_type",
+  "section_break_zjzg",
+  "show_pending_slip",
+  "trip_sheet_details",
+  "section_break_beit",
+  "no_of_tripsheet",
+  "section_break_gdwl",
+  "creator",
+  "column_break_oykf",
+  "company",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Auto Token",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_break_vbvn",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Season",
+   "options": "Season"
+  },
+  {
+   "fieldname": "column_break_amws",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Branch "
+  },
+  {
+   "fieldname": "column_break_dfcb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "read_only_depends_on": "eval:!doc.edit"
+  },
+  {
+   "fieldname": "column_break_nrcv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_time",
+   "fieldtype": "Time",
+   "label": "Posting Time ",
+   "read_only_depends_on": "eval:!doc.edit"
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Data",
+   "label": "Shift"
+  },
+  {
+   "fieldname": "column_break_krrd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "edit",
+   "fieldtype": "Check",
+   "label": "Edit Posting Date & Time "
+  },
+  {
+   "fieldname": "season_day",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Season Day"
+  },
+  {
+   "fieldname": "column_break_ncnf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "token_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Token No."
+  },
+  {
+   "fieldname": "factory_day",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Factory Day"
+  },
+  {
+   "fieldname": "section_break_uwte",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "transporter_contract",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transporter Contract"
+  },
+  {
+   "fieldname": "column_break_rolh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transporter",
+   "fieldtype": "Data",
+   "label": "Transporter",
+   "link_filters": "[[\"Supplier\",\"transporter\",\"=\",1]]"
+  },
+  {
+   "fieldname": "column_break_kesh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transporter_name",
+   "fieldtype": "Data",
+   "label": "Transporter Name"
+  },
+  {
+   "fieldname": "column_break_bypv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vehicle_no",
+   "fieldtype": "Data",
+   "label": "Vehicle No."
+  },
+  {
+   "fieldname": "column_break_zrxp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transporter_vehicle_type",
+   "fieldtype": "Data",
+   "label": "Transporter Vehicle Type"
+  },
+  {
+   "fieldname": "column_break_ucjq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transporter_gang_type",
+   "fieldtype": "Data",
+   "label": "Transporter Gang Type"
+  },
+  {
+   "fieldname": "section_break_zjzg",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "show_pending_slip",
+   "fieldtype": "Button",
+   "label": "Show Pending Slip"
+  },
+  {
+   "fieldname": "trip_sheet_details",
+   "fieldtype": "Table",
+   "label": "Auto Token Trip sheet Details",
+   "options": "Auto Token Trip sheet Details"
+  },
+  {
+   "fieldname": "section_break_beit",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "no_of_tripsheet",
+   "fieldtype": "Float",
+   "label": "No. of Tripsheet"
+  },
+  {
+   "fieldname": "section_break_gdwl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "creator",
+   "fieldtype": "Data",
+   "label": "Creator"
+  },
+  {
+   "fieldname": "column_break_oykf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-10 14:49:27.045543",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Auto Token",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

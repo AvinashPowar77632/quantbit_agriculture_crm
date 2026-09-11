@@ -1,0 +1,44 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-11 11:35:10.843377",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "binding_weight_percentage_setting"
+ ],
+ "fields": [
+  {
+   "fieldname": "binding_weight_percentage_setting",
+   "fieldtype": "Table",
+   "label": "Binding Weight Percentage Setting",
+   "options": "Binding Weight Percentage Setting"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-11 11:38:47.031931",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Agriculture Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,58 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-11 12:31:47.060472",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "season",
+  "vehicle_type",
+  "criteria",
+  "allocated_quantity"
+ ],
+ "fields": [
+  {
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Season",
+   "options": "Season"
+  },
+  {
+   "fieldname": "vehicle_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Vehicle Type",
+   "options": "\nBULLOCK CART\nTRACTOR CART\nHARVESTER MACHINE\nTRUCK\nTRACTOR"
+  },
+  {
+   "fieldname": "criteria",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Criteria",
+   "options": "\nPer km\nPer Ton\nDirect"
+  },
+  {
+   "fieldname": "allocated_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Allocated Quantity"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 12:37:14.069831",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Fuel Station Criteria",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

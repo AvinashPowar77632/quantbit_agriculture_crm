@@ -1,0 +1,188 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-10 11:15:54.245138",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "select",
+  "season",
+  "column_break_tldq",
+  "branch",
+  "column_break_qmdo",
+  "posting_date",
+  "section_break_adzv",
+  "trip_sheet_no",
+  "rope_placement",
+  "ht_drive",
+  "column_break_jnvi",
+  "cane_registration",
+  "route",
+  "area_in_acrs",
+  "column_break_hzwq",
+  "farmer",
+  "distance",
+  "survey_number",
+  "section_break_yrao",
+  "transporter_contract",
+  "transporter",
+  "cart_no",
+  "column_break_qwfn",
+  "harvester_contract",
+  "harvester"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "select",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Select"
+  },
+  {
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "label": "Season",
+   "options": "Season"
+  },
+  {
+   "fieldname": "column_break_tldq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "label": "Branch"
+  },
+  {
+   "fieldname": "column_break_qmdo",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date"
+  },
+  {
+   "fieldname": "section_break_adzv",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "trip_sheet_no",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Trip Sheet No",
+   "options": "Trip Sheet"
+  },
+  {
+   "fieldname": "rope_placement",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rope Placement"
+  },
+  {
+   "fetch_from": "trip_sheet_no.ht_driver",
+   "fetch_if_empty": 1,
+   "fieldname": "ht_drive",
+   "fieldtype": "Data",
+   "label": "HT Drive"
+  },
+  {
+   "fieldname": "column_break_jnvi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cane_registration",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cane Registration"
+  },
+  {
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Route"
+  },
+  {
+   "fieldname": "area_in_acrs",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Area in Acrs",
+   "precision": "2"
+  },
+  {
+   "fieldname": "column_break_hzwq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "farmer",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Farmer"
+  },
+  {
+   "fieldname": "distance",
+   "fieldtype": "Float",
+   "label": "distance",
+   "precision": "2"
+  },
+  {
+   "fieldname": "survey_number",
+   "fieldtype": "Data",
+   "label": "Survey Number"
+  },
+  {
+   "fieldname": "section_break_yrao",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "transporter_contract",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transporter Contract"
+  },
+  {
+   "fieldname": "transporter",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transporter"
+  },
+  {
+   "fieldname": "cart_no",
+   "fieldtype": "Data",
+   "label": "Cart No"
+  },
+  {
+   "fieldname": "column_break_qwfn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "harvester_contract",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Harvester Contract"
+  },
+  {
+   "fieldname": "harvester",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Harvester"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-10 14:50:21.657652",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Auto Token Trip sheet Details",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

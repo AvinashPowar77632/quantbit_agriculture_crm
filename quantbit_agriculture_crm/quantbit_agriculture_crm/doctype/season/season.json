@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:season_name",
+ "creation": "2026-09-10 14:46:11.284492",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "season_name",
+  "disabled",
+  "year_start_date",
+  "column_break_ztdu",
+  "is_current",
+  "is_default",
+  "abbr",
+  "year_end_date",
+  "section_break_kxpl",
+  "agriculture_season_start_date",
+  "factory_start_date",
+  "column_break_wcbt",
+  "agriculture_season_end_date",
+  "factory_end_date"
+ ],
+ "fields": [
+  {
+   "description": "For e.g. 2012, 2012-13",
+   "fieldname": "season_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Season Name",
+   "oldfieldname": "year",
+   "oldfieldtype": "Data",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "disabled",
+   "fieldtype": "Check",
+   "label": "Disabled"
+  },
+  {
+   "fieldname": "year_start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Year Start Date",
+   "no_copy": 1,
+   "oldfieldname": "year_start_date",
+   "oldfieldtype": "Date",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "column_break_ztdu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "label": "is current"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "is default"
+  },
+  {
+   "fieldname": "abbr",
+   "fieldtype": "Data",
+   "label": "Abbr"
+  },
+  {
+   "fieldname": "year_end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Year End Date",
+   "no_copy": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "section_break_kxpl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "agriculture_season_start_date",
+   "fieldtype": "Date",
+   "label": "Agriculture Season Start Date"
+  },
+  {
+   "fieldname": "factory_start_date",
+   "fieldtype": "Date",
+   "label": "Factory Start Date"
+  },
+  {
+   "fieldname": "column_break_wcbt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "agriculture_season_end_date",
+   "fieldtype": "Date",
+   "label": "Agriculture Season End Date"
+  },
+  {
+   "fieldname": "factory_end_date",
+   "fieldtype": "Date",
+   "label": "Factory End Date"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-10 14:46:50.629184",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Season",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

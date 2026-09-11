@@ -1,0 +1,103 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-10 11:17:11.779394",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "entity_code",
+  "deduction_type",
+  "debit_account",
+  "column_break_uhaw",
+  "entity_name",
+  "deduction_method",
+  "credit_account",
+  "column_break_joam",
+  "entity_type",
+  "deduction_rate"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "fieldname": "entity_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Entity Code"
+  },
+  {
+   "columns": 2,
+   "fieldname": "deduction_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Deduction Type",
+   "mandatory_depends_on": "eval:doc.deduction"
+  },
+  {
+   "fieldname": "debit_account",
+   "fieldtype": "Data",
+   "label": "Debit Account"
+  },
+  {
+   "fieldname": "column_break_uhaw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fetch_from": "entity_code.supplier_name",
+   "fieldname": "entity_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Entity Name"
+  },
+  {
+   "columns": 2,
+   "fieldname": "deduction_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Deduction Method",
+   "options": "\nPercentage\nAmount\nAmount Per Ton"
+  },
+  {
+   "fieldname": "credit_account",
+   "fieldtype": "Data",
+   "label": "Credit Account"
+  },
+  {
+   "fieldname": "column_break_joam",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "entity_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Entity Type",
+   "options": "\nTransporter\nHarvester\nFarmer"
+  },
+  {
+   "columns": 1,
+   "fieldname": "deduction_rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Deduction Rate",
+   "options": "\n",
+   "precision": "2"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-10 15:22:47.447194",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Trip Sheet Penalty Charges",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
