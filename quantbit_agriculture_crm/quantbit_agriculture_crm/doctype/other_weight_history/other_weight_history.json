@@ -1,0 +1,330 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-09-17 11:13:30.726939",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device_and_supplier_info_section",
+  "wb",
+  "season",
+  "column_break_alwg",
+  "date",
+  "factory_date",
+  "column_break_2",
+  "shift",
+  "naming_series",
+  "moved",
+  "info_section",
+  "weight_in",
+  "party_name",
+  "vehicle_no",
+  "column_break_6tyl1",
+  "customer",
+  "driver_name",
+  "supplier",
+  "column_break_tkfs",
+  "is_sync",
+  "document_no",
+  "address",
+  "section_break_4",
+  "loaded_weight",
+  "manually_weight",
+  "gross_weight_timedate",
+  "gross_weight_user",
+  "column_break_6",
+  "empty_weight",
+  "manually_tare_weight",
+  "tare_weight_user",
+  "tare_weight_timedate",
+  "column_break_iwjnr",
+  "actual_weight",
+  "reason",
+  "section_break_9",
+  "o_item",
+  "general_weight_item",
+  "section_break_jrx9v",
+  "column_break_mdwd",
+  "column_break_z2oth",
+  "out_date_and_time",
+  "amended_from",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "device_and_supplier_info_section",
+   "fieldtype": "Section Break",
+   "label": "Device and Other Info"
+  },
+  {
+   "fieldname": "wb",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Selected Weight Bridge",
+   "options": "\nWeight Bridge 1\nWeight Bridge 2\nWeight Bridge 3\nWeight Bridge 4\nWeight Bridge 5\nWeight Bridge 6"
+  },
+  {
+   "default": "2026-2027",
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "label": "Season",
+   "options": "Season",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_alwg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Now",
+   "fieldname": "date",
+   "fieldtype": "Datetime",
+   "label": "Date"
+  },
+  {
+   "fieldname": "factory_date",
+   "fieldtype": "Date",
+   "label": "Factory Date"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Link",
+   "label": "Shift",
+   "options": "Factory Shift"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "OW-"
+  },
+  {
+   "default": "0",
+   "fieldname": "moved",
+   "fieldtype": "Check",
+   "label": "moved"
+  },
+  {
+   "fieldname": "info_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "weight_in",
+   "fieldtype": "Select",
+   "label": "Weight In ",
+   "options": "Inward\nOutward"
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "label": "Party Name"
+  },
+  {
+   "fieldname": "vehicle_no",
+   "fieldtype": "Data",
+   "label": "Vehicle No"
+  },
+  {
+   "fieldname": "column_break_6tyl1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Data",
+   "label": "Customer"
+  },
+  {
+   "fieldname": "driver_name",
+   "fieldtype": "Data",
+   "label": "Driver Name"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Data",
+   "label": "Supplier"
+  },
+  {
+   "fieldname": "column_break_tkfs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_sync",
+   "fieldtype": "Check",
+   "label": "Is Sync"
+  },
+  {
+   "fieldname": "document_no",
+   "fieldtype": "Data",
+   "label": "Document No"
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Text",
+   "label": "Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break",
+   "label": "Weight Bridge Reading"
+  },
+  {
+   "fieldname": "loaded_weight",
+   "fieldtype": "Float",
+   "label": "Gross Weight",
+   "read_only_depends_on": "eval:doc.manually_weight==1;"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.docstatus==0;",
+   "fieldname": "manually_weight",
+   "fieldtype": "Check",
+   "label": "Manually Weight"
+  },
+  {
+   "fieldname": "gross_weight_timedate",
+   "fieldtype": "Datetime",
+   "label": "Gross Weight Time/Date",
+   "options": "Now",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gross_weight_user",
+   "fieldtype": "Data",
+   "label": "Gross Weight User"
+  },
+  {
+   "fieldname": "column_break_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "empty_weight",
+   "fieldtype": "Float",
+   "label": "Tear Weight",
+   "read_only_depends_on": "eval:doc.manually_tare_weight==1;"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.docstatus==0;",
+   "fieldname": "manually_tare_weight",
+   "fieldtype": "Check",
+   "label": "Manually Tare Weight"
+  },
+  {
+   "fieldname": "tare_weight_user",
+   "fieldtype": "Data",
+   "label": "Tare Weight User"
+  },
+  {
+   "fieldname": "tare_weight_timedate",
+   "fieldtype": "Datetime",
+   "label": "Tare Weight Time/Date",
+   "options": "Now"
+  },
+  {
+   "fieldname": "column_break_iwjnr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_weight",
+   "fieldtype": "Float",
+   "label": "Net Weight"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Data",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "o_item",
+   "fieldtype": "Data",
+   "label": "O Item"
+  },
+  {
+   "fieldname": "general_weight_item",
+   "fieldtype": "Table",
+   "label": "Items ",
+   "options": "Other Weight Item"
+  },
+  {
+   "fieldname": "section_break_jrx9v",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_mdwd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_z2oth",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "out_date_and_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Out Date and Time",
+   "options": "Now",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Other Weight",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Other Weight History",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-09-17 11:13:30.726939",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Other Weight History",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

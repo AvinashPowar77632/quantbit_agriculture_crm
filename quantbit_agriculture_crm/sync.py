@@ -524,3 +524,142 @@ def sync_cane_weight_to_remote():
     frappe.db.commit()
     _log("Cane Weight Sync", f"Sync job complete: {synced} synced, {failed} failed out of {len(local_cane_weights)}")
 
+
+
+def _sync_other_weight_to_site(doc, doc_dict, child_fields, site):
+    """Push one Other Weight document to a single remote site.
+    Returns None on success, or a short error string on failure.
+    Logs only on failure so the Error Log stays readable across many records."""
+    remote_url = site.site.rstrip("/")
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[502, 503, 504])
+    session.mount("http://", HTTPAdapter(max_retries=retries))
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
+
+    try:
+        login_response = session.post(
+            f"{remote_url}/api/method/login",
+            data={"usr": site.user, "pwd": site.password},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        if login_response.status_code != 200 or "Logged In" not in login_response.text:
+            _log("Authentication Failed", f"{remote_url}: status {login_response.status_code}")
+            return f"authentication failed (status {login_response.status_code})"
+
+        doctype_check = session.get(f"{remote_url}/api/resource/Other Weight?limit_page_length=1", timeout=30)
+        if doctype_check.status_code != 200:
+            _log("Doctype Check Failed", f"'Other Weight' may not exist on {remote_url}: status {doctype_check.status_code}")
+            return "remote 'Other Weight' doctype not found"
+
+        # Prepare data for remote sync (strip local-only flags, incl. from child rows)
+        sync_data = doc_dict.copy()
+        sync_data.pop("is_sync", None)
+        sync_data.pop("moved", None)
+        sync_data = _convert_dates_for_json(sync_data)
+        for child_field in child_fields:
+            for row in sync_data.get(child_field) or []:
+                row.pop("is_sync", None)
+                row.pop("moved", None)
+
+        check_response = session.get(f"{remote_url}/api/resource/Other Weight/{doc.name}", timeout=30)
+        if check_response.status_code == 200:
+            resp = session.put(f"{remote_url}/api/resource/Other Weight/{doc.name}", json=sync_data, timeout=30)
+        else:
+            resp = session.post(f"{remote_url}/api/resource/Other Weight", json=sync_data, timeout=30)
+
+        if resp.status_code not in (200, 201):
+            _log("Remote Save Failed", f"{doc.name} on {remote_url}: status {resp.status_code}, body: {resp.text[:200]}")
+            return f"remote save failed (status {resp.status_code}): {resp.text[:200]}"
+
+        return None
+    except Exception as e:
+        _log("Remote Sync Error", f"{doc.name} on {remote_url}: {str(e)}"[:300])
+        return str(e)[:200]
+
+
+@frappe.whitelist(allow_guest=False)
+def sync_other_weight_two():
+    """
+    Sync submitted Other Weight documents from the local Frappe instance to all
+    configured remote Frappe instances. Once a document is pushed to every remote
+    site successfully, it is marked synced, archived into Other Weight History,
+    then cancelled and deleted locally.
+
+    Only failures and per-record/job success milestones are logged, to keep the
+    Error Log readable across large batches.
+    """
+    _log("Other Weight Sync", "Starting Other Weight sync (Local to Remote)")
+
+    if not frappe.db.exists("DocType", "Other Weight"):
+        _log("Other Weight Sync", "Local 'Other Weight' doctype does not exist")
+        return
+
+    local_other_weights = frappe.get_all(
+        "Other Weight", filters={"is_sync": 0, "moved": 0, "docstatus": 1}, fields=["name"]
+    )
+    if not local_other_weights:
+        return
+
+    sites = frappe.get_all("Site Configuration", fields=["name", "site", "user", "password"])
+    if not sites:
+        _log("Other Weight Sync", "No site configurations found in 'Site Configuration' doctype")
+        return
+
+    try:
+        meta = frappe.get_meta("Other Weight")
+        child_fields = [f.fieldname for f in meta.get_table_fields()]
+    except Exception as e:
+        _log("Other Weight Sync Error", f"Error fetching Other Weight metadata: {str(e)}"[:2000])
+        return
+
+    synced, failed = 0, 0
+
+    for local_ow in local_other_weights:
+        try:
+            doc = frappe.get_doc("Other Weight", local_ow.name)
+            doc_dict = doc.as_dict()
+
+            site_errors = [
+                f"{site.name}: {err}"
+                for site in sites
+                if (err := _sync_other_weight_to_site(doc, doc_dict, child_fields, site))
+            ]
+            if site_errors:
+                failed += 1
+                _log("Other Weight Sync Error", f"{doc.name} - sync failed: {'; '.join(site_errors)}"[:2000])
+                continue
+
+            # Synced to every site: mark synced, archive, then remove locally.
+            # db_set bypasses the "not allowed to change after submission" check,
+            # since is_sync/moved are not user-editable, submit-time fields.
+            doc.db_set("is_sync", 1, update_modified=False)
+
+            history_doc = frappe.new_doc("Other Weight History")
+            for field, value in doc_dict.items():
+                if field not in ("name", "moved"):
+                    history_doc.set(field, value)
+            history_doc.insert(ignore_permissions=True)
+
+            doc.db_set("moved", 1, update_modified=False)
+
+            if frappe.db.exists("Other Weight", doc.name):
+                doc_to_delete = frappe.get_doc("Other Weight", doc.name)
+                if doc_to_delete.docstatus == 1:
+                    doc_to_delete.cancel()
+                frappe.delete_doc("Other Weight", doc.name, ignore_permissions=True, ignore_missing=True)
+
+            synced += 1
+            _log("Other Weight Sync", f"Successfully synced, moved, and deleted Other Weight: {doc.name}")
+
+        except Exception as e:
+            failed += 1
+            _log("Other Weight Sync Error", f"{local_ow.name} - failed to move to history or delete: {str(e)}"[:300])
+            frappe.db.rollback()
+            continue
+
+    frappe.db.commit()
+    _log("Other Weight Sync", f"Sync job complete: {synced} synced, {failed} failed out of {len(local_other_weights)}")
+
+

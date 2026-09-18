@@ -48,7 +48,7 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     ll_names = {}
     if t.get('json'):
         try:
-            ll_names = json.loads(json.loads(t.json))
+            ll_names = json.loads(t.json)
         except (json.JSONDecodeError, TypeError) as e:
             frappe.log_error(f"Error parsing json JSON: {str(e)}", "Trip Sheet JSON Parse Error")
             ll_names = {}
@@ -305,6 +305,13 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                     field.fieldtype not in ['Column Break', 'Section Break', 'Tab Break']):
                     data[field.fieldname] = cw_doc.get(field.fieldname)
 
+            # binding_weight_percentage() is a method, not a stored DocField, so the
+            # meta.fields loop above never picks it up - fetch it explicitly here too,
+            # same as get_data() does for a brand-new entry, so the client always has
+            # it available for its own cane_weight/binding_weight/net_weight display
+            # (see actual_weight() in cane_weight.py for the authoritative formula).
+            data["binding_weight_percent"] = get_binding_weight_percentage(cw_doc.transporter_vehicle_type) or 1
+
             status = "Draft" if cw_doc.docstatus == 0 else "Submitted"
 
         else:
@@ -444,6 +451,132 @@ def submit_cane_weight_form(data):
             "error": str(e)
         }
 
+
+def _find_existing_other_weight(name):
+    """Look up a non-cancelled Other Weight by name, if any (the EXE sends
+    `name` back once a document has been saved/loaded, so re-saving or
+    submitting updates that same document instead of creating a duplicate)."""
+    if not name:
+        return None
+    return frappe.db.get_value(
+        "Other Weight",
+        {"name": name, "docstatus": ["!=", 2]},
+        "name"
+    )
+
+
+def _apply_other_weight_data(doc, data):
+    """Load posted data onto an Other Weight doc. doctype/name/docstatus are
+    managed by the caller, not by the posted data itself."""
+    doc.update({k: v for k, v in data.items() if k not in ("doctype", "name", "docstatus")})
+    return doc
+
+
+@frappe.whitelist()
+def save_other_weight_form(data):
+    """Save Other Weight form (docstatus=0). Updates the existing document
+    when `data.name` refers to a non-cancelled draft, otherwise creates one."""
+    try:
+        data = frappe.parse_json(data)
+        frappe.log_error(title="save_other_weight_form called", message=f"save_other_weight_form called {str(data)}")
+
+        existing_doc = _find_existing_other_weight(data.get("name"))
+
+        if existing_doc:
+            doc = frappe.get_doc("Other Weight", existing_doc)
+            _apply_other_weight_data(doc, data)
+            doc.docstatus = 0  # Ensure it stays as draft
+            doc.save()
+            return {
+                "success": True,
+                "message": "Other Weight updated successfully",
+                "data": {"name": doc.name}
+            }
+
+        # Create new document
+        doc = frappe.new_doc("Other Weight")
+        _apply_other_weight_data(doc, data)
+        doc.docstatus = 0  # Save as draft
+        doc.insert()
+        return {
+            "success": True,
+            "message": "Other Weight saved successfully",
+            "data": {"name": doc.name}
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "save_other_weight_form Error")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@frappe.whitelist()
+def submit_other_weight_form(data):
+    """Submit Other Weight form (docstatus=1). Updates and submits the
+    existing document when `data.name` refers to a non-cancelled draft,
+    otherwise creates and submits it in one go."""
+    try:
+        data = frappe.parse_json(data)
+        frappe.log_error(title="submit_other_weight_form called", message=f"submit_other_weight_form called {str(data)}")
+
+        existing_doc = _find_existing_other_weight(data.get("name"))
+
+        if existing_doc:
+            doc = frappe.get_doc("Other Weight", existing_doc)
+            _apply_other_weight_data(doc, data)
+            doc.submit()
+            return {
+                "success": True,
+                "message": "Other Weight updated and submitted successfully",
+                "data": {"name": doc.name}
+            }
+
+        doc = frappe.new_doc("Other Weight")
+        _apply_other_weight_data(doc, data)
+        doc.insert()
+        doc.submit()
+        return {
+            "success": True,
+            "message": "Other Weight created and submitted successfully",
+            "data": {"name": doc.name}
+        }
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "submit_other_weight_form Error")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@frappe.whitelist(allow_guest=False)
+def get_other_weight_records(limit_page_length=50):
+    """List submitted (docstatus=1) Other Weight records, for the EXE's
+    'View Submitted Records' dialog."""
+    try:
+        records = frappe.get_all(
+            "Other Weight",
+            filters={"docstatus": 1},
+            fields=["name", "season", "party_name", "vehicle_no", "weight_in", "actual_weight", "modified"],
+            order_by="modified desc",
+            limit_page_length=limit_page_length,
+        )
+        return {"success": True, "data": records}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "get_other_weight_records Error")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist(allow_guest=False)
+def get_other_weight_record(name):
+    """Fetch one full Other Weight document, for 'load selected record' in
+    the EXE's View Submitted Records dialog."""
+    try:
+        doc = frappe.get_doc("Other Weight", name)
+        return {"success": True, "data": doc.as_dict()}
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "get_other_weight_record Error")
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

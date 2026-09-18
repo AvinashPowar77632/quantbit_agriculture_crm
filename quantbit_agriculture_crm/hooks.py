@@ -177,9 +177,9 @@ scheduler_events = {
         "*/1 * * * *": [
             "quantbit_agriculture_crm.sync.sync_cane_weight_to_remote"
         ],
-        # "*/5 * * * *": [
-        #     "quantbit_agriculture_crm.sync.sync_other_weight_two"
-        # ],
+        "*/5 * * * *": [
+            "quantbit_agriculture_crm.sync.sync_other_weight_two"
+        ],
         "*/2 * * * *": [
             "quantbit_agriculture_crm.sync.sync_trip_sheet_remote_to_local"
         ],
