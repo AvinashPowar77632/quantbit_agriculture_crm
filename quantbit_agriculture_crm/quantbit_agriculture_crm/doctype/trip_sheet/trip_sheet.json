@@ -105,7 +105,8 @@
   {
    "fieldname": "slip_no",
    "fieldtype": "Int",
-   "label": "Slip No"
+   "label": "Slip No",
+   "read_only": 1
   },
   {
    "default": "0",
@@ -144,7 +145,8 @@
   {
    "fieldname": "company",
    "fieldtype": "Data",
-   "label": "Company"
+   "label": "Company",
+   "read_only": 1
   },
   {
    "fieldname": "naming_series",
@@ -533,13 +535,14 @@
   {
    "fieldname": "trip_sheet",
    "fieldtype": "Data",
-   "label": "Trip Sheet"
+   "label": "Trip Sheet",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-18 17:28:35.181485",
+ "modified": "2026-09-20 11:01:25.008712",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Trip Sheet",

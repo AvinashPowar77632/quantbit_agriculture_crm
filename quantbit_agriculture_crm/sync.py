@@ -227,6 +227,9 @@ def sync_trip_sheet_remote_to_local():
                                 except Exception as e:
                                     field_errors.append(f"{k}={v}: {str(e)}")
                                     continue
+                        # Pin trip_sheet to the remote doc's own name regardless of what
+                        # came through in the payload (autoname() derives local name from it).
+                        local_doc.trip_sheet = name
                         local_doc.save(ignore_permissions=True)
                         action = "Updated"
                     else:
@@ -244,8 +247,9 @@ def sync_trip_sheet_remote_to_local():
                             except Exception as e:
                                 field_errors.append(f"{k}={v}: {str(e)}")
                                 continue
-                        new_doc.name = name
-                        new_doc.insert(ignore_permissions=True)
+
+                        new_doc.trip_sheet = name
+                        new_doc.insert(ignore_permissions=True, set_name=name)
                         action = "Inserted"
                         existing_names.add(name)
 
