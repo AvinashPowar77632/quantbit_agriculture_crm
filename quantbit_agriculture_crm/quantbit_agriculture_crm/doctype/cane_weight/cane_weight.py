@@ -71,3 +71,51 @@ class CaneWeight(Document):
 	def binding_weight_percentage(self):
 		weight = frappe.get_value("Weight Settings Details",{"vehicle_type":self.transporter_vehicle_type},"percentage")
 		return weight or 1
+
+	def before_submit(self):
+		if self.gross_weight <= 0:
+			frappe.throw("Gross Weight must be greater than zero.")
+		if self.tare_weight <= 0:
+			frappe.throw("Tare Weight must be greater than zero.")
+		if self.gross_weight < self.tare_weight:
+			frappe.throw("Gross Weight must be greater than Tare Weight.")
+		if not self.cane_weight or self.cane_weight <= 0:
+			frappe.throw("Cane Weight must be greater than zero.")
+
+	def on_submit(self):
+		self.on_submit_status_change()
+	
+	def on_cancel(self):
+		self.on_cancel_status_change()
+	
+	def on_cancel_status_change(self):
+		trip_id= [self.trip_sheet]
+		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Submitted Token")
+
+	def on_submit_status_change(self):
+		trip_id= [self.trip_sheet]
+		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Weight Done")
+
+
+@frappe.whitelist()
+def status_change(doctype: str, docnames: List[str], status_field: str, status: str):
+    if not doctype:
+        frappe.throw("Doctype is required")
+    if not docnames:
+        frappe.throw("List of document names is required")
+    if not status_field:
+        frappe.throw("Fieldname is required")
+    if status is None:
+        frappe.throw("Status value is required")
+
+    placeholders = ", ".join(["%s"] * len(docnames))
+
+    frappe.db.sql(
+        f"""
+        UPDATE `tab{doctype}`
+        SET `{status_field}` = %s
+        WHERE name IN ({placeholders})
+        """,
+        tuple([status] + list(docnames)),
+    )
+    frappe.db.commit()
