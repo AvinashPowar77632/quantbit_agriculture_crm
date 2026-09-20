@@ -14,6 +14,7 @@
   "branch",
   "status",
   "diesel_allocated",
+  "trip_sheet",
   "column_break_jald",
   "company",
   "naming_series",
@@ -528,12 +529,17 @@
    "fieldname": "token_user",
    "fieldtype": "Data",
    "label": "Token User"
+  },
+  {
+   "fieldname": "trip_sheet",
+   "fieldtype": "Data",
+   "label": "Trip Sheet"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-10 14:55:51.938186",
+ "modified": "2026-09-18 17:28:35.181485",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Trip Sheet",
