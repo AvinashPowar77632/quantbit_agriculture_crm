@@ -277,6 +277,28 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
     try:
         data = {}
         status = ""
+        
+        trip_sheet_doc = frappe.db.get_value("Trip Sheet",{"name": trip_sheet,"season": season},
+            ["name", "status"],
+            as_dict=True
+        )
+
+        if not trip_sheet_doc:
+            frappe.throw(f"Trip Sheet {trip_sheet} not found for season {season}.")
+
+        # Trip Sheet must be Submitted Token before Cane Weight
+        if trip_sheet_doc.status != "Submitted Token":
+            frappe.throw(
+                f"Trip Sheet {trip_sheet} is not in 'Submitted Token' status. "
+                f"Current status is '{trip_sheet_doc.status or 'Not Set'}'. "
+                f"Please complete the Auto Token process first."
+            )
+
+        if trip_sheet_doc.status == "Weight Done":
+            frappe.throw(
+                f"Trip Sheet {trip_sheet} is already in 'Weight Done' status."
+                f"Weight is already done for this trip sheet."
+            )
 
         # === 1️⃣ Check if Cane Weight Already Exists ===
         is_exists = frappe.db.exists("Cane Weight", {
@@ -305,11 +327,6 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                     field.fieldtype not in ['Column Break', 'Section Break', 'Tab Break']):
                     data[field.fieldname] = cw_doc.get(field.fieldname)
 
-            # binding_weight_percentage() is a method, not a stored DocField, so the
-            # meta.fields loop above never picks it up - fetch it explicitly here too,
-            # same as get_data() does for a brand-new entry, so the client always has
-            # it available for its own cane_weight/binding_weight/net_weight display
-            # (see actual_weight() in cane_weight.py for the authoritative formula).
             data["binding_weight_percent"] = get_binding_weight_percentage(cw_doc.transporter_vehicle_type) or 1
 
             status = "Draft" if cw_doc.docstatus == 0 else "Submitted"
