@@ -603,6 +603,7 @@ def sync_trip_sheets():
         cleaned_data = []
 
         for ts in trip_sheets:
+            ts["trip_sheet"] = ts.name
             # Add Auto Token details
             token_parent = frappe.db.get_value(
                 "Auto Token Trip sheet Details",
