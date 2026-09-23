@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import getdate, to_timedelta
+from frappe.utils import getdate, to_timedelta, flt, cint
 from datetime import timedelta
 import json
 import requests
@@ -64,12 +64,22 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["factory_day"] = shift_data.get("factory_day")
     data_key["effective_date"] = shift_data.get("effective_date")
 
-    diesel_allocation = diesel_allocation_method(
+    fuel_data = diesel_allocation_method(
         season=season,
         vehicle_type=t.transporter_vehicle_type,
-        distance=t.distance or 0
+        distance=t.distance or 0,
+        extra_fuel_allocation=0
     )
-    data_key["diesel_allocation"] = diesel_allocation
+    if isinstance(fuel_data, dict):
+        data_key["diesel_allocation"] = fuel_data.get("diesel_allocation", 0.0)
+        data_key["heavy_vehicle_fuel_allowance"] = fuel_data.get("heavy_vehicle_fuel_allowance", 0.0)
+        data_key["extra_fuel_allocation"] = fuel_data.get("extra_fuel_allocation", 0.0)
+        data_key["base_allocation"] = fuel_data.get("base_allocation", 0.0)
+    else:
+        data_key["diesel_allocation"] = fuel_data
+        data_key["heavy_vehicle_fuel_allowance"] = 0.0
+        data_key["extra_fuel_allocation"] = 0.0
+        data_key["base_allocation"] = fuel_data
     auto_token_details= get_auto_token_details_form_trip_sheet(t.name)
 
     data_key["cart_no"] = t.cart_no
@@ -158,20 +168,58 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     return data_key
 
 @frappe.whitelist()
-def diesel_allocation_method(season, vehicle_type, distance):
-	ds_alloc = frappe.db.get_value("Fuel Station Criteria",
-		{"season": season, "criteria": "Per Km", "vehicle_type": vehicle_type, "parent": season},
-		["allocated_quantity"]
-	)
-	if not ds_alloc:
-		return 0
+def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, as_dict=True):
+    distance = flt(distance)
+    extra_fuel = flt(extra_fuel_allocation or 0)
 
-	if distance <= 10:
-		return 10
-	else:
-		final_d = distance - 10
-		value = ds_alloc * final_d
-		return int(value + 10)
+    alloc_criteria = frappe.db.get_value(
+        "Fuel Allocation Criteria",
+        {"season": season, "criteria": ["in", ["Per Km", "Per km"]], "vehicle_type": vehicle_type},
+        ["allocated_quantity", "allocation_percentage", "heavy_vehicle", "criteria"],
+        as_dict=True
+    )
+    if not alloc_criteria:
+        alloc_criteria = frappe.db.get_value(
+            "Fuel Allocation Criteria",
+            {"season": season, "vehicle_type": vehicle_type},
+            ["allocated_quantity", "allocation_percentage", "heavy_vehicle", "criteria"],
+            as_dict=True
+        )
+
+    if not alloc_criteria:
+        res = {
+            "diesel_allocation": round(extra_fuel, 2),
+            "heavy_vehicle_fuel_allowance": 0.0,
+            "extra_fuel_allocation": round(extra_fuel, 2),
+            "base_allocation": 0.0,
+        }
+        return res if (as_dict in (True, 1, "1", "True")) else res["diesel_allocation"]
+
+    allocated_quantity = flt(alloc_criteria.get("allocated_quantity") or 0)
+    allocation_percentage = flt(alloc_criteria.get("allocation_percentage") or 0)
+    heavy_vehicle = cint(alloc_criteria.get("heavy_vehicle") or 0)
+    criteria = alloc_criteria.get("criteria") or "Per Km"
+
+    if criteria in ["Per Km", "Per km"]:
+        base_allocation = distance * allocated_quantity
+    elif criteria == "Direct":
+        base_allocation = allocated_quantity
+    else:
+        base_allocation = distance * allocated_quantity
+
+    heavy_vehicle_fuel_allowance = 0.0
+    if heavy_vehicle:
+        heavy_vehicle_fuel_allowance = (base_allocation * allocation_percentage) / 100.0
+
+    diesel_allocation = base_allocation + heavy_vehicle_fuel_allowance + extra_fuel
+
+    res = {
+        "diesel_allocation": round(diesel_allocation, 2),
+        "heavy_vehicle_fuel_allowance": round(heavy_vehicle_fuel_allowance, 2),
+        "extra_fuel_allocation": round(extra_fuel, 2),
+        "base_allocation": round(base_allocation, 2),
+    }
+    return res if (as_dict in (True, 1, "1", "True")) else res["diesel_allocation"]
 
 @frappe.whitelist()
 def get_shift_season_factory_day(posting_date=None, posting_time=None, season=None):

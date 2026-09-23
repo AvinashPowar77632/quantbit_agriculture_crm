@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class FuelStationCriteria(Document):
+class FuelAllocationCriteria(Document):
 	pass

@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-23 12:19:03.989051",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "column_break_lckk",
+  "season",
+  "column_break_omdu",
+  "branch",
+  "section_break_lxxu",
+  "vehicle_type",
+  "heavy_vehicle",
+  "column_break_fpdr",
+  "criteria",
+  "allocation_percentage",
+  "column_break_zcue",
+  "allocated_quantity"
+ ],
+ "fields": [
+  {
+   "fieldname": "column_break_lckk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "season",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Season",
+   "options": "Season",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_omdu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Branch"
+  },
+  {
+   "fieldname": "section_break_lxxu",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "vehicle_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Vehicle Type",
+   "link_filters": "[[\"Vehicle Type\",\"does_required_fuel\",\"=\",1]]",
+   "options": "\nBULLOCK CART\nTRACTOR CART\nHARVESTER MACHINE\nTRUCK\nTRACTOR\nMESH TRACTOR",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "heavy_vehicle",
+   "fieldtype": "Check",
+   "label": "Heavy Vehicle"
+  },
+  {
+   "fieldname": "column_break_fpdr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Per km",
+   "fieldname": "criteria",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Criteria",
+   "options": "\nPer km\nPer Ton\nDirect"
+  },
+  {
+   "depends_on": "heavy_vehicle",
+   "fieldname": "allocation_percentage",
+   "fieldtype": "Percent",
+   "label": "Allocation Percentage"
+  },
+  {
+   "fieldname": "column_break_zcue",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "allocated_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Allocated Quantity"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-23 12:38:25.440011",
+ "modified_by": "Administrator",
+ "module": "Quantbit Agriculture Crm",
+ "name": "Fuel Allocation Criteria",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

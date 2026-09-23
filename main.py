@@ -354,8 +354,8 @@ class MainWindow(QWidget):
         self._tare_weight_captured = False
         # Binding Weight % for the current trip sheet's vehicle type - set from
         # Get Data's "binding_weight_percent" (see _populate_cane_weight_form_from_exe_api)
-        # and used by _build_cane_weight_payload to mirror CaneWeight.actual_weight().
         self._cane_weight_binding_percent = 1
+        self._base_diesel_allocation = 0.0
         self.posting_datetime_timer = QTimer(self)
         self.posting_datetime_timer.timeout.connect(self._tick_posting_datetime)
         self.posting_datetime_timer.start(1000)
@@ -1007,6 +1007,24 @@ class MainWindow(QWidget):
         except Exception as e:
             self.output.append(f"[Cane Weight API] Could not set field '{field_key}': {e}")
 
+    def _recalculate_diesel_allocation(self):
+        """Dynamically recalculate diesel_allocation = base + heavy_vehicle_allowance + extra_fuel_allocation"""
+        try:
+            extra_widget = self.form_fields.get("extra_fuel_allocation")
+            extra_val = float(extra_widget.text().strip() or 0.0) if extra_widget else 0.0
+        except (ValueError, AttributeError):
+            extra_val = 0.0
+        try:
+            heavy_widget = self.form_fields.get("heavy_vehicle_fuel_allowance")
+            heavy_val = float(heavy_widget.text().strip() or 0.0) if heavy_widget else 0.0
+        except (ValueError, AttributeError):
+            heavy_val = 0.0
+        base_val = getattr(self, "_base_diesel_allocation", 0.0)
+        total = round(base_val + heavy_val + extra_val, 2)
+        diesel_widget = self.form_fields.get("diesel_allocation")
+        if diesel_widget is not None:
+            diesel_widget.setText(str(total))
+
     def _populate_cane_weight_form_from_exe_api(self, data, full_trip_sheet_no):
         """Populate the Cane Weight form from a quantbit_agriculture_crm.exe_api.get_data
         response. Posting Date/Time are deliberately never touched here - they always
@@ -1040,10 +1058,21 @@ class MainWindow(QWidget):
             "ht_driver_ll_name",
             # Field Slip tab
             "slip_boy_name",
+            # Fuel fields
+            "heavy_vehicle_fuel_allowance", "extra_fuel_allocation", "diesel_allocation",
         ]
         for key in field_keys:
             if key in data:
                 self._set_form_field_value(key, data.get(key))
+
+        base_alloc = data.get("base_allocation")
+        if base_alloc is not None:
+            self._base_diesel_allocation = float(base_alloc)
+        else:
+            d_alloc = float(data.get("diesel_allocation") or 0.0)
+            h_alloc = float(data.get("heavy_vehicle_fuel_allowance") or 0.0)
+            e_alloc = float(data.get("extra_fuel_allocation") or 0.0)
+            self._base_diesel_allocation = max(0.0, d_alloc - h_alloc - e_alloc)
 
         # Needed by _build_cane_weight_payload to recompute cane_weight/binding_weight/
         # net_weight the same way CaneWeight.actual_weight() does server-side.
@@ -1592,30 +1621,49 @@ class MainWindow(QWidget):
             ("Vehicle No", field("vehicle_no")),
         ]
 
+        heavy_vehicle_fuel_allowance_edit = field("heavy_vehicle_fuel_allowance", read_only=True)
+        extra_fuel_allocation_edit = field("extra_fuel_allocation")
+        extra_fuel_allocation_edit.setValidator(QDoubleValidator(0.00, 99999.00, 2))
+        extra_fuel_allocation_edit.textChanged.connect(self._recalculate_diesel_allocation)
+        diesel_allocation_edit = field("diesel_allocation", read_only=True)
+
+        fuel_fields = [
+            ("Heavy Vehicle Fuel Allowance", heavy_vehicle_fuel_allowance_edit),
+            ("Extra Fuel Allocation", extra_fuel_allocation_edit),
+            ("Diesel Allocation", diesel_allocation_edit),
+        ]
+
         fields_group = QGroupBox("Slip Details")
         SLIP_DETAILS_SLOTS_PER_ROW = 6
         fields_grid = QGridLayout(fields_group)
         for i in range(0, len(compact_fields), SLIP_DETAILS_SLOTS_PER_ROW):
             add_row(fields_grid, i // SLIP_DETAILS_SLOTS_PER_ROW, compact_fields[i:i + SLIP_DETAILS_SLOTS_PER_ROW])
+
+        # Row 1: Heavy Vehicle Fuel Allowance, Extra Fuel Allocation, Diesel Allocation in a single row
+        for idx, (label, widget) in enumerate(fuel_fields):
+            col = idx * 4
+            fields_grid.addWidget(QLabel(label), 1, col)
+            fields_grid.addWidget(widget, 1, col + 1, 1, 3)
+
         stretch_field_columns(fields_grid, n_cols=SLIP_DETAILS_SLOTS_PER_ROW * 2)
 
-        # --- Details group box: every "* LL Name" field that used to live in
-        # Slip Details, 3 per row -----------------------------------------
+        # --- Details group box: every field that used to live in
+        # Slip Details, 3 per row (LL Name removed from label) ------------
         rope_placement_ll_name_edit = field("rope_placement_ll_name", read_only=True)
-        rope_placement_ll_name_edit.setMinimumWidth(320)  # holds noticeably longer text than the other LL Name fields
+        rope_placement_ll_name_edit.setMinimumWidth(320)  # holds noticeably longer text than the other fields
 
         farmer_ll_name_edit = field("farmer_ll_name", read_only=True)
 
         details_fields = [
-            ("Route LL Name", field("route_ll_name", read_only=True)),
-            ("Village LL Name", field("village_ll_name", read_only=True)),
-            ("Crop Type LL Name", field("crop_type_ll_name", read_only=True)),
-            ("Circle Office LL Name", field("circle_office_ll_name", read_only=True)),
-            ("Farmer LL Name", farmer_ll_name_edit),
-            ("Transporter LL Name", field("transporter_ll_name", read_only=True)),
-            ("Harvester LL Name", field("harvester_ll_name", read_only=True)),
-            ("HT Driver LL Name", field("ht_driver_ll_name", read_only=True)),
-            ("Rope Placement LL Name", rope_placement_ll_name_edit),
+            ("Route", field("route_ll_name", read_only=True)),
+            ("Village", field("village_ll_name", read_only=True)),
+            ("Crop Type", field("crop_type_ll_name", read_only=True)),
+            ("Circle Office", field("circle_office_ll_name", read_only=True)),
+            ("Farmer", farmer_ll_name_edit),
+            ("Transporter", field("transporter_ll_name", read_only=True)),
+            ("Harvester", field("harvester_ll_name", read_only=True)),
+            ("HT Driver", field("ht_driver_ll_name", read_only=True)),
+            ("Rope Placement", rope_placement_ll_name_edit),
         ]
 
         details_group = QGroupBox("Details")
@@ -6000,6 +6048,11 @@ class MainWindow(QWidget):
             payload["transporter_weight"] = float(form_data.get("transporter_weight", 0)) if form_data.get("transporter_weight") else 0.0
             payload["harvester_weight"] = float(form_data.get("harvester_weight", 0)) if form_data.get("harvester_weight") else 0.0
 
+            # Fuel fields
+            payload["heavy_vehicle_fuel_allowance"] = float(form_data.get("heavy_vehicle_fuel_allowance", 0)) if form_data.get("heavy_vehicle_fuel_allowance") else 0.0
+            payload["extra_fuel_allocation"] = float(form_data.get("extra_fuel_allocation", 0)) if form_data.get("extra_fuel_allocation") else 0.0
+            payload["diesel_allocation"] = float(form_data.get("diesel_allocation", 0)) if form_data.get("diesel_allocation") else 0.0
+
             # Local Language (LL) Name fields - Read Only display fields, passed
             # through as-is so the values fetched from the Trip Sheet are persisted.
             for ll_field in (
@@ -6277,6 +6330,7 @@ class MainWindow(QWidget):
         # New trip sheet's vehicle type hasn't been fetched yet - back to the default
         # until the next Get Data call sets it (see _build_cane_weight_payload).
         self._cane_weight_binding_percent = 1
+        self._base_diesel_allocation = 0.0
         # QMessageBox.information(self, "Success", "Form cleared!")
     
     def add_fuel_sale_item_row(self):
