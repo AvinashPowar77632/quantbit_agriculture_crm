@@ -6,6 +6,7 @@ from frappe.model.document import Document
 from frappe.utils import getdate,to_timedelta,flt
 from datetime import timedelta
 import json
+from typing import List
 
 
 class CaneWeight(Document):
