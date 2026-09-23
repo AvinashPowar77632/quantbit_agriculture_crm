@@ -64,19 +64,26 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["factory_day"] = shift_data.get("factory_day")
     data_key["effective_date"] = shift_data.get("effective_date")
 
+    # heavy_vehicle=0: never auto-apply the Heavy Vehicle Fuel Allowance on a fresh
+    # fetch, even if this vehicle type's Fuel Allocation Criteria is itself flagged
+    # Heavy Vehicle - it's only ever added once the operator explicitly checks the
+    # Cane Weight "Heavy Vehicle" checkbox in the EXE (see diesel_allocation_method).
     fuel_data = diesel_allocation_method(
         season=season,
         vehicle_type=t.transporter_vehicle_type,
         distance=t.distance or 0,
-        extra_fuel_allocation=0
+        extra_fuel_allocation=0,
+        heavy_vehicle=0,
     )
     if isinstance(fuel_data, dict):
         data_key["diesel_allocation"] = fuel_data.get("diesel_allocation", 0.0)
+        data_key["heavy_vehicle"] = 0
         data_key["heavy_vehicle_fuel_allowance"] = fuel_data.get("heavy_vehicle_fuel_allowance", 0.0)
         data_key["extra_fuel_allocation"] = fuel_data.get("extra_fuel_allocation", 0.0)
         data_key["base_allocation"] = fuel_data.get("base_allocation", 0.0)
     else:
         data_key["diesel_allocation"] = fuel_data
+        data_key["heavy_vehicle"] = 0
         data_key["heavy_vehicle_fuel_allowance"] = 0.0
         data_key["extra_fuel_allocation"] = 0.0
         data_key["base_allocation"] = fuel_data
@@ -168,9 +175,16 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     return data_key
 
 @frappe.whitelist()
-def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, as_dict=True):
+def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, heavy_vehicle=0, as_dict=True):
+    """heavy_vehicle here is the Cane Weight "Heavy Vehicle" checkbox state as set
+    by the operator in the EXE - NOT this vehicle type's own Fuel Allocation
+    Criteria flag. The allowance is only ever added into diesel_allocation when
+    the operator has actually checked that box (heavy_vehicle=1); it defaults to
+    0 (not applied) so a fresh Get Data fetch never auto-applies it just because
+    the vehicle type happens to be configured as Heavy Vehicle."""
     distance = flt(distance)
     extra_fuel = flt(extra_fuel_allocation or 0)
+    heavy_vehicle = cint(heavy_vehicle or 0)
 
     alloc_criteria = frappe.db.get_value(
         "Fuel Allocation Criteria",
@@ -189,6 +203,7 @@ def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_alloca
     if not alloc_criteria:
         res = {
             "diesel_allocation": round(extra_fuel, 2),
+            "heavy_vehicle": 0,
             "heavy_vehicle_fuel_allowance": 0.0,
             "extra_fuel_allocation": round(extra_fuel, 2),
             "base_allocation": 0.0,
@@ -197,7 +212,7 @@ def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_alloca
 
     allocated_quantity = flt(alloc_criteria.get("allocated_quantity") or 0)
     allocation_percentage = flt(alloc_criteria.get("allocation_percentage") or 0)
-    heavy_vehicle = cint(alloc_criteria.get("heavy_vehicle") or 0)
+    criteria_heavy_vehicle = cint(alloc_criteria.get("heavy_vehicle") or 0)
     criteria = alloc_criteria.get("criteria") or "Per Km"
 
     if criteria in ["Per Km", "Per km"]:
@@ -207,14 +222,20 @@ def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_alloca
     else:
         base_allocation = distance * allocated_quantity
 
-    heavy_vehicle_fuel_allowance = 0.0
-    if heavy_vehicle:
-        heavy_vehicle_fuel_allowance = (base_allocation * allocation_percentage) / 100.0
+    # heavy_vehicle_fuel_allowance is the *potential* percentage-based allowance for
+    # this vehicle type (only meaningful when its own Fuel Allocation Criteria row
+    # is itself flagged Heavy Vehicle - allocation_percentage is otherwise unset/0)
+    # - always computed and returned so the EXE can show/cache it. It only actually
+    # gets added into diesel_allocation when BOTH that criteria flag holds AND the
+    # operator has checked the Cane Weight "Heavy Vehicle" checkbox (heavy_vehicle=1).
+    heavy_vehicle_fuel_allowance = (base_allocation * allocation_percentage) / 100.0
+    applied_heavy_vehicle_allowance = heavy_vehicle_fuel_allowance if (heavy_vehicle and criteria_heavy_vehicle) else 0.0
 
-    diesel_allocation = base_allocation + heavy_vehicle_fuel_allowance + extra_fuel
+    diesel_allocation = base_allocation + applied_heavy_vehicle_allowance + extra_fuel
 
     res = {
         "diesel_allocation": round(diesel_allocation, 2),
+        "heavy_vehicle": heavy_vehicle,
         "heavy_vehicle_fuel_allowance": round(heavy_vehicle_fuel_allowance, 2),
         "extra_fuel_allocation": round(extra_fuel, 2),
         "base_allocation": round(base_allocation, 2),
