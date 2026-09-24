@@ -17,8 +17,11 @@ from PySide6.QtWidgets import (
     QDateEdit, QDateTimeEdit, QScrollArea, QTableWidget, QTableWidgetItem,
     QTimeEdit , QDoubleSpinBox , QHeaderView, QDialog, QAbstractItemView
 )
-from PySide6.QtCore import QThread, Signal, Qt, QTimer, QDate, QDateTime, QTime
-from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QPixmap, QDoubleValidator, QTextCursor
+from PySide6.QtCore import QThread, Signal, Qt, QTimer, QDate, QDateTime, QTime, QUrl
+from PySide6.QtGui import (
+    QFont, QPalette, QColor, QIcon, QPixmap, QDoubleValidator, QTextCursor,
+    QShortcut, QKeySequence, QDesktopServices,
+)
 from urllib.parse import quote
 
 class SerialReader(QThread):
@@ -500,7 +503,18 @@ class MainWindow(QWidget):
 
         main_layout.addWidget(tab_widget)
         self.setLayout(main_layout)
-    
+
+        self._setup_cane_weight_shortcuts()
+
+    def _setup_cane_weight_shortcuts(self):
+        """Keyboard shortcuts for the Cane Weight tab's actions - active window-wide
+        (not just while that tab is focused), same as any regular menu shortcut."""
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_form)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self.submit_form)
+        QShortcut(QKeySequence("Ctrl+M"), self, activated=self.clear_form)
+        QShortcut(QKeySequence("Ctrl+P"), self, activated=self.print_cane_weight_form)
+        QShortcut(QKeySequence("Ctrl+H"), self, activated=self.view_submitted_cane_weight_records)
+
     def create_header(self):
         header_frame = QFrame()
         header_frame.setObjectName("headerFrame")
@@ -814,6 +828,22 @@ class MainWindow(QWidget):
                 inner_scroll.setMinimumHeight(inner_widget.sizeHint().height() + 12)
         return tab_widget
 
+    def _make_collapsible_groupbox(self, title):
+        """Build a QGroupBox with a checkbox in its title that expands/collapses
+        its content - same pattern already used elsewhere in the app (see e.g.
+        create_penalty_charges_tab). Checked = expanded (the default). Build
+        your own layout on the returned content widget, not on the group box
+        itself, so toggling the checkbox can show/hide it as one unit."""
+        group = QGroupBox(title)
+        group.setCheckable(True)
+        group.setChecked(True)
+        outer_layout = QVBoxLayout(group)
+        outer_layout.setContentsMargins(6, 6, 6, 6)
+        content = QWidget()
+        outer_layout.addWidget(content)
+        group.toggled.connect(content.setVisible)
+        return group, content
+
     # ------------------------------------------------------------------
     # Live Posting Date / Posting Time (always the current system clock)
     # ------------------------------------------------------------------
@@ -962,6 +992,11 @@ class MainWindow(QWidget):
                 return
 
             self._populate_cane_weight_form_from_exe_api(data, full_trip_sheet_no)
+            self._update_cane_weight_action_buttons(doc_status)
+            # An existing Draft/Submitted doc's real name (data["name"], from
+            # get_cane_weight_data's is_exists branch) - needed by
+            # print_cane_weight_form(). A brand new trip sheet has none yet.
+            self.current_cane_weight_doc = {"name": data.get("name")} if data.get("name") else None
             self.output.append(f"[Cane Weight API] {status_text} (doc_status={doc_status}) - form populated from {full_trip_sheet_no}")
             QMessageBox.information(self, "Success", f"{status_text or 'Cane Weight form populated'} from Trip Sheet {full_trip_sheet_no}")
 
@@ -1019,6 +1054,9 @@ class MainWindow(QWidget):
             heavy_val = float(heavy_widget.text().strip() or 0.0) if heavy_widget else 0.0
         except (ValueError, AttributeError):
             heavy_val = 0.0
+        heavy_vehicle_check = self.form_fields.get("heavy_vehicle")
+        if heavy_vehicle_check is not None and not heavy_vehicle_check.isChecked():
+            heavy_val = 0.0
         base_val = getattr(self, "_base_diesel_allocation", 0.0)
         total = round(base_val + heavy_val + extra_val, 2)
         diesel_widget = self.form_fields.get("diesel_allocation")
@@ -1059,7 +1097,8 @@ class MainWindow(QWidget):
             # Field Slip tab
             "slip_boy_name",
             # Fuel fields
-            "heavy_vehicle_fuel_allowance", "extra_fuel_allocation", "diesel_allocation",
+            "heavy_vehicle", "heavy_vehicle_fuel_allowance", "extra_fuel_allocation", "diesel_allocation",
+            "do_not_allow_fuel",
         ]
         for key in field_keys:
             if key in data:
@@ -1157,9 +1196,17 @@ class MainWindow(QWidget):
     def _lock_cane_weight_fields_read_only(self):
         """Cane Weight form policy: every field on the Field Slip and Detailed
         Entry tabs is populated via 'Get Data' / weighbridge capture and is
-        Read Only, except Trip Sheet No. (to look the record up) and
-        Gross/Tare Weight (typed manually or captured from the bridge)."""
-        editable_fields = {"trip_sheet", "gross_weight", "tare_weight"}
+        Read Only, except Trip Sheet No. (to look the record up),
+        Gross/Tare Weight (typed manually or captured from the bridge),
+        Heavy Vehicle (toggled manually to decide whether Heavy Vehicle Fuel
+        Allowance is applied - see _recalculate_diesel_allocation), Extra
+        Fuel Allocation (typed manually; Diesel Allocation recalculates from
+        it live, see _recalculate_diesel_allocation) and Do Not Allow Fuel
+        (print-only flag toggled manually - see print_cane_weight_form)."""
+        editable_fields = {
+            "trip_sheet", "gross_weight", "tare_weight", "heavy_vehicle",
+            "extra_fuel_allocation", "do_not_allow_fuel",
+        }
         for field_name, widget in self.form_fields.items():
             if field_name in editable_fields:
                 continue
@@ -1217,12 +1264,13 @@ class MainWindow(QWidget):
                 return None
             gb = boxes[0]
             gb.setParent(None)
-            gb.setCheckable(False)  # always visible - no collapse toggle
+            # Checkable/collapsible per create_penalty_charges_tab() - left as-is
+            # (every Cane Weight group box collapses independently).
             return gb
 
         # --- Group box 1: Basic Information -----------------------------------
-        basic_info_group = QGroupBox("Basic Information")
-        basic_info_outer = QVBoxLayout(basic_info_group)
+        basic_info_group, basic_info_content = self._make_collapsible_groupbox("Basic Information")
+        basic_info_outer = QVBoxLayout(basic_info_content)
 
         basic_fields_widget = QWidget()
         basic_fields_grid = QGridLayout(basic_fields_widget)
@@ -1241,8 +1289,8 @@ class MainWindow(QWidget):
         container_layout.addWidget(basic_info_group)
 
         # --- Group box 2: Details (HT Details, then Deduction Details) -------
-        details_group = QGroupBox("Details")
-        details_grid = QGridLayout(details_group)
+        details_group, details_content = self._make_collapsible_groupbox("Details")
+        details_grid = QGridLayout(details_content)
         details_grid.setSpacing(6)
         details_items = []
         details_items.extend(self._fields_ht_details())
@@ -1409,7 +1457,15 @@ class MainWindow(QWidget):
 
     def _fields_ht_details(self):
         """HT Details' fields. Transporter Vehicle Type ("Vehicle Type") and
-        Vehicle No moved to the Field Slip tab's Slip Details group box."""
+        Vehicle No moved to the Field Slip tab's Slip Details group box.
+        Heavy Vehicle Fuel Allowance moved here from the Slip Details group
+        box - Heavy Vehicle (the checkbox that gates whether this allowance
+        is applied) and Extra Fuel Allocation/Diesel Allocation stay on the
+        Field Slip tab's Trip Sheet row instead (see create_field_slip_tab)."""
+        heavy_vehicle_fuel_allowance_edit = QLineEdit()
+        heavy_vehicle_fuel_allowance_edit.setReadOnly(True)
+        self.form_fields["heavy_vehicle_fuel_allowance"] = heavy_vehicle_fuel_allowance_edit
+
         transporter_edit = QLineEdit()
         self.form_fields["transporter"] = transporter_edit
 
@@ -1435,6 +1491,7 @@ class MainWindow(QWidget):
         self.form_fields["rope_placement"] = rope_placement_edit
 
         return [
+            ("Heavy Vehicle Fuel Allowance", heavy_vehicle_fuel_allowance_edit),
             ("Transporter", transporter_edit),
             ("Transporter Gang Type", transporter_gang_type_edit),
             ("Harvester", harvester_edit),
@@ -1578,8 +1635,8 @@ class MainWindow(QWidget):
             ("Token Date", date_field("token_date")),
             ("Token Time", time_field("token_time")),
         ]
-        basic_info_group = QGroupBox("Basic Info")
-        basic_info_grid = QGridLayout(basic_info_group)
+        basic_info_group, basic_info_content = self._make_collapsible_groupbox("Basic Info")
+        basic_info_grid = QGridLayout(basic_info_content)
         add_row(basic_info_grid, 0, basic_info_fields)
         stretch_field_columns(basic_info_grid, n_cols=len(basic_info_fields) * 2)
 
@@ -1599,9 +1656,43 @@ class MainWindow(QWidget):
         get_data_btn.setToolTip("Fetch Cane Weight data for this Trip Sheet No. and auto-fill the form")
         get_data_btn.clicked.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
 
+        # Heavy Vehicle checkbox, Extra Fuel Allocation and Diesel Allocation
+        # moved here (Trip Sheet row) from the Slip Details group box below.
+        # Heavy Vehicle Fuel Allowance moved out to the Detailed Entry tab
+        # instead (see _fields_ht_details) - the operator toggles this
+        # checkbox to decide whether that allowance is added into Diesel
+        # Allocation or not (see _recalculate_diesel_allocation).
+        heavy_vehicle_check = QCheckBox()
+        heavy_vehicle_check.setToolTip("When checked, Heavy Vehicle Fuel Allowance is added into Diesel Allocation.")
+        self.form_fields["heavy_vehicle"] = heavy_vehicle_check
+        heavy_vehicle_check.stateChanged.connect(self._recalculate_diesel_allocation)
+
+        extra_fuel_allocation_edit = field("extra_fuel_allocation")
+        extra_fuel_allocation_edit.setValidator(QDoubleValidator(0.00, 99999.00, 2))
+        extra_fuel_allocation_edit.textChanged.connect(self._recalculate_diesel_allocation)
+        diesel_allocation_edit = field("diesel_allocation", read_only=True)
+
+        # Saved to the Cane Weight document (a real "Do Not Allow Fuel" Check
+        # field there) but not wired into _recalculate_diesel_allocation - it
+        # doesn't change what's on screen or how Diesel Allocation is
+        # calculated at all. It's only read by print_cane_weight_form(), which
+        # shows Diesel Allocation as 0 on the printed slip when this is
+        # checked, regardless of the actual calculated/saved value.
+        do_not_allow_fuel_check = QCheckBox()
+        do_not_allow_fuel_check.setToolTip("Print-only flag: when checked, the printed slip shows Diesel Allocation as 0.")
+        self.form_fields["do_not_allow_fuel"] = do_not_allow_fuel_check
+
         top_row_layout.addWidget(QLabel("Trip Sheet No."))
         top_row_layout.addWidget(trip_sheet_edit, 1)
         top_row_layout.addWidget(get_data_btn)
+        top_row_layout.addWidget(QLabel("Heavy Vehicle"))
+        top_row_layout.addWidget(heavy_vehicle_check)
+        top_row_layout.addWidget(QLabel("Extra Fuel Allocation"))
+        top_row_layout.addWidget(extra_fuel_allocation_edit)
+        top_row_layout.addWidget(QLabel("Diesel Allocation"))
+        top_row_layout.addWidget(diesel_allocation_edit)
+        top_row_layout.addWidget(QLabel("Do Not Allow Fuel"))
+        top_row_layout.addWidget(do_not_allow_fuel_check)
         top_row_layout.addStretch(3)
 
         # --- Rows 2+: compact fields, 6 per row --------------------------------
@@ -1621,29 +1712,11 @@ class MainWindow(QWidget):
             ("Vehicle No", field("vehicle_no")),
         ]
 
-        heavy_vehicle_fuel_allowance_edit = field("heavy_vehicle_fuel_allowance", read_only=True)
-        extra_fuel_allocation_edit = field("extra_fuel_allocation")
-        extra_fuel_allocation_edit.setValidator(QDoubleValidator(0.00, 99999.00, 2))
-        extra_fuel_allocation_edit.textChanged.connect(self._recalculate_diesel_allocation)
-        diesel_allocation_edit = field("diesel_allocation", read_only=True)
-
-        fuel_fields = [
-            ("Heavy Vehicle Fuel Allowance", heavy_vehicle_fuel_allowance_edit),
-            ("Extra Fuel Allocation", extra_fuel_allocation_edit),
-            ("Diesel Allocation", diesel_allocation_edit),
-        ]
-
-        fields_group = QGroupBox("Slip Details")
+        fields_group, fields_content = self._make_collapsible_groupbox("Slip Details")
         SLIP_DETAILS_SLOTS_PER_ROW = 6
-        fields_grid = QGridLayout(fields_group)
+        fields_grid = QGridLayout(fields_content)
         for i in range(0, len(compact_fields), SLIP_DETAILS_SLOTS_PER_ROW):
             add_row(fields_grid, i // SLIP_DETAILS_SLOTS_PER_ROW, compact_fields[i:i + SLIP_DETAILS_SLOTS_PER_ROW])
-
-        # Row 1: Heavy Vehicle Fuel Allowance, Extra Fuel Allocation, Diesel Allocation in a single row
-        for idx, (label, widget) in enumerate(fuel_fields):
-            col = idx * 4
-            fields_grid.addWidget(QLabel(label), 1, col)
-            fields_grid.addWidget(widget, 1, col + 1, 1, 3)
 
         stretch_field_columns(fields_grid, n_cols=SLIP_DETAILS_SLOTS_PER_ROW * 2)
 
@@ -1666,7 +1739,7 @@ class MainWindow(QWidget):
             ("Rope Placement", rope_placement_ll_name_edit),
         ]
 
-        details_group = QGroupBox("Details")
+        details_group, details_content = self._make_collapsible_groupbox("Details")
         # Bigger value font for every field in this box; Rope Placement and
         # Farmer LL Name additionally get a red value, per spec.
         details_group.setStyleSheet("QGroupBox QLineEdit { font-size: 15px; }")
@@ -1674,7 +1747,7 @@ class MainWindow(QWidget):
         rope_placement_ll_name_edit.setStyleSheet(red_value_style)
         farmer_ll_name_edit.setStyleSheet(red_value_style)
         DETAILS_SLOTS_PER_ROW = 3
-        details_field_grid = QGridLayout(details_group)
+        details_field_grid = QGridLayout(details_content)
         for i in range(0, len(details_fields), DETAILS_SLOTS_PER_ROW):
             add_row(details_field_grid, i // DETAILS_SLOTS_PER_ROW, details_fields[i:i + DETAILS_SLOTS_PER_ROW])
         stretch_field_columns(details_field_grid, n_cols=DETAILS_SLOTS_PER_ROW * 2)
@@ -1696,10 +1769,14 @@ class MainWindow(QWidget):
         gross_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
         gross_weight_edit.setToolTip("Type the weight manually, or use 'Get Gross Weight' to capture it from the connected weighbridge.")
         gross_weight_edit.setStyleSheet(weight_value_style)
+        # Stamp the actual capture moment for manual entry too, same as
+        # get_gross_weight() does for a weighbridge-captured reading.
+        gross_weight_edit.editingFinished.connect(self._on_gross_weight_manually_edited)
         tare_weight_edit = field("tare_weight")
         tare_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
         tare_weight_edit.setToolTip("Type the weight manually, or use 'Get Tare Weight' to capture it from the connected weighbridge.")
         tare_weight_edit.setStyleSheet(weight_value_style)
+        tare_weight_edit.editingFinished.connect(self._on_tare_weight_manually_edited)
 
         net_weight_edit = field("net_weight", read_only=True)
         net_weight_edit.setStyleSheet("color: red;")
@@ -1738,7 +1815,7 @@ class MainWindow(QWidget):
             ],
         ]
 
-        weight_group = QGroupBox("Weight")
+        weight_group, weight_content = self._make_collapsible_groupbox("Weight")
         weight_group.setStyleSheet(
             "QGroupBox { font-size: 17px; font-weight: bold; } "
             "QGroupBox QLabel { font-size: 15px; font-weight: 600; color: #2c3e50; } "
@@ -1750,7 +1827,7 @@ class MainWindow(QWidget):
             "  background-color: #f7f9fa; color: #1a1a1a; "
             "}"
         )
-        weight_grid = QGridLayout(weight_group)
+        weight_grid = QGridLayout(weight_content)
         weight_grid.setHorizontalSpacing(14)
         weight_grid.setVerticalSpacing(10)
         for row, items in enumerate(weight_rows):
@@ -1793,6 +1870,19 @@ class MainWindow(QWidget):
         view_submitted_btn.setMinimumHeight(40)
         view_submitted_btn.setMinimumWidth(160)
         actions_layout.addWidget(view_submitted_btn)
+
+        self.cane_weight_print_btn = QPushButton("Print")
+        self.cane_weight_print_btn.setObjectName("printBtn")
+        self.cane_weight_print_btn.clicked.connect(self.print_cane_weight_form)
+        self.cane_weight_print_btn.setMinimumHeight(40)
+        self.cane_weight_print_btn.setMinimumWidth(120)
+        actions_layout.addWidget(self.cane_weight_print_btn)
+
+        # Save/Submit start out showing "Save" only (brand new entry, no
+        # existing Cane Weight document yet) - see _update_cane_weight_action_buttons,
+        # which flips this once a Get Data fetch finds an existing Draft or a
+        # Save/Submit round-trip changes the document's docstatus.
+        self._update_cane_weight_action_buttons("")
 
         layout.addWidget(basic_info_group)
         layout.addWidget(top_row_widget)
@@ -5942,7 +6032,23 @@ class MainWindow(QWidget):
         else:
             print(f"[DEBUG] Not connected to serial port")
             QMessageBox.warning(self, "Warning", "Not connected to serial port!")
-    
+
+    def _on_gross_weight_manually_edited(self):
+        """Gross Weight typed in by hand (not via 'Get Gross Weight') still needs
+        its own real capture timestamp, not the entry-creation time - stamp it
+        here the same way get_gross_weight() does for a weighbridge reading."""
+        field = self.form_fields.get("gross_weight_timestamp")
+        if field is not None:
+            field.setDateTime(datetime.now())
+        self._gross_weight_captured = True
+
+    def _on_tare_weight_manually_edited(self):
+        """Tare Weight typed in by hand - see _on_gross_weight_manually_edited."""
+        field = self.form_fields.get("tare_weight_timestamp")
+        if field is not None:
+            field.setDateTime(datetime.now())
+        self._tare_weight_captured = True
+
     def _collect_cane_weight_form_data(self):
         """Collect the current value of every Cane Weight form widget, keyed by field name."""
         form_data = {}
@@ -6049,9 +6155,11 @@ class MainWindow(QWidget):
             payload["harvester_weight"] = float(form_data.get("harvester_weight", 0)) if form_data.get("harvester_weight") else 0.0
 
             # Fuel fields
+            payload["heavy_vehicle"] = form_data.get("heavy_vehicle", 0)
             payload["heavy_vehicle_fuel_allowance"] = float(form_data.get("heavy_vehicle_fuel_allowance", 0)) if form_data.get("heavy_vehicle_fuel_allowance") else 0.0
             payload["extra_fuel_allocation"] = float(form_data.get("extra_fuel_allocation", 0)) if form_data.get("extra_fuel_allocation") else 0.0
             payload["diesel_allocation"] = float(form_data.get("diesel_allocation", 0)) if form_data.get("diesel_allocation") else 0.0
+            payload["do_not_allow_fuel"] = form_data.get("do_not_allow_fuel", 0)
 
             # Local Language (LL) Name fields - Read Only display fields, passed
             # through as-is so the values fetched from the Trip Sheet are persisted.
@@ -6180,6 +6288,20 @@ class MainWindow(QWidget):
             getattr(self, "cane_weight_clear_btn", None),
         ]
 
+    def _update_cane_weight_action_buttons(self, doc_status):
+        """Show only the action button that matches the Cane Weight document's
+        current state: a brand new entry (no existing document, doc_status "")
+        shows Save only; an existing Draft (docstatus 0) shows Submit only;
+        an already-Submitted document (docstatus 1) hides both - there's
+        nothing left to Save or Submit for it."""
+        self._cane_weight_doc_status = doc_status
+        save_btn = getattr(self, "cane_weight_save_btn", None)
+        submit_btn = getattr(self, "cane_weight_submit_btn", None)
+        if save_btn is not None:
+            save_btn.setVisible(doc_status in ("", None))
+        if submit_btn is not None:
+            submit_btn.setVisible(doc_status == "Draft")
+
     def _send_cane_weight_payload(self, payload, action_label, clear_after):
         """Send the Cane Weight payload to the dedicated save_cane_weight_form /
         submit_cane_weight_form whitelisted methods. These handle create-vs-update
@@ -6259,6 +6381,10 @@ class MainWindow(QWidget):
             # Remember this doc so we can show/track it if needed - the backend no
             # longer needs it from us though, it always looks up by trip_sheet itself.
             self.current_cane_weight_doc = {"name": doc_name}
+            # A successful Save creates/updates the Draft (docstatus 0) - Submit
+            # is the only action left for it. A successful Submit finalizes it
+            # (docstatus 1) - neither Save nor Submit applies to it anymore.
+            self._update_cane_weight_action_buttons("Draft" if action_label == "Save" else "Submitted")
 
     def _on_cane_weight_send_error(self, error_msg, action_label):
         self._reset_cane_weight_action_buttons()
@@ -6322,6 +6448,12 @@ class MainWindow(QWidget):
         # setCurrentIndex(0) above resets Branch to its first combo item
         # ("Bedkihal") rather than the required default - put it back to Kundal.
         self.form_fields["branch"].setCurrentText("Kundal")
+        # The generic QCheckBox branch above checks every checkbox, including
+        # this print-only flag - a fresh/new entry should default to fuel
+        # being allowed on the printed slip, so uncheck it back.
+        do_not_allow_fuel_check = self.form_fields.get("do_not_allow_fuel")
+        if do_not_allow_fuel_check is not None:
+            do_not_allow_fuel_check.setChecked(False)
         self._refresh_posting_datetime_now()  # posting_date/time always live, not blank
         self._default_weight_bridge_users()  # weight bridge users default to logged-in user
         # New truck, no weight captured yet - Gross/Tare Weight Timestamp go back to live-ticking
@@ -6331,7 +6463,49 @@ class MainWindow(QWidget):
         # until the next Get Data call sets it (see _build_cane_weight_payload).
         self._cane_weight_binding_percent = 1
         self._base_diesel_allocation = 0.0
+        # New/blank form - no existing Cane Weight document yet, so only Save applies.
+        self._update_cane_weight_action_buttons("")
+        # No document to print until the next Save/Submit/Get Data.
+        self.current_cane_weight_doc = None
         # QMessageBox.information(self, "Success", "Form cleared!")
+
+    def print_cane_weight_form(self):
+        """Print the current Cane Weight document (Print button or Ctrl+P) - opens
+        the Frappe Print View for it in the default browser, using whichever ERP
+        site the operator is currently logged into (self.primary_frappe_site_url),
+        so this works unchanged across UAT/prod/any other site without code
+        changes. Requires the document to already exist on the server (i.e. Save
+        or Submit at least once, or load an existing saved record) - there's no
+        name to print otherwise."""
+        if not self.primary_frappe_site_url:
+            QMessageBox.warning(self, "Warning", "Primary Frappe site URL is not configured.")
+            return
+
+        doc_name = (self.current_cane_weight_doc or {}).get("name")
+        if not doc_name:
+            QMessageBox.warning(
+                self, "Warning",
+                "This Cane Weight entry hasn't been saved yet - Save or Submit it "
+                "first, or fetch an existing saved record, before printing."
+            )
+            return
+
+        base_url = self.primary_frappe_site_url.rstrip("/")
+        params = {
+            "doctype": "Cane Weight",
+            "name": doc_name,
+            "trigger_print": "1",
+            "format": "Cane Weight – A4 Standard",
+            "no_letterhead": "0",
+            "letterhead": "Internal Letter Head",
+            "settings": "{}",
+            "_lang": "en",
+        }
+        query = "&".join(f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in params.items())
+        url = f"{base_url}/printview?{query}"
+
+        self.output.append(f"[Print] Opening Print View for Cane Weight '{doc_name}': {url}")
+        QDesktopServices.openUrl(QUrl(url))
     
     def add_fuel_sale_item_row(self):
         """Add a new row to the fuel sale items table."""

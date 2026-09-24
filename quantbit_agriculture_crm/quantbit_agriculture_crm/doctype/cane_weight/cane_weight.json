@@ -23,6 +23,7 @@
   "edit",
   "is_weight_finalized",
   "heavy_vehicle",
+  "do_not_allow_fuel",
   "naming_series",
   "factory_date",
   "section_break_vpjk",
@@ -944,6 +945,13 @@
    "fieldname": "heavy_vehicle",
    "fieldtype": "Check",
    "label": "Heavy Vehicle"
+  },
+  {
+   "default": "0",
+   "description": "Print-only flag - when checked, the printed Cane Weight slip shows Diesel Allocation as 0.",
+   "fieldname": "do_not_allow_fuel",
+   "fieldtype": "Check",
+   "label": "Do Not Allow Fuel"
   }
  ],
  "grid_page_length": 50,

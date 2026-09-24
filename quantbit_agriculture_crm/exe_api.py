@@ -87,6 +87,11 @@ def get_data(trip_sheet, season, posting_date, posting_time):
         data_key["heavy_vehicle_fuel_allowance"] = 0.0
         data_key["extra_fuel_allocation"] = 0.0
         data_key["base_allocation"] = fuel_data
+    # A fresh trip sheet (no existing Cane Weight draft) always starts with the
+    # "Do Not Allow Fuel" print flag unchecked - reopening an existing draft
+    # instead returns its own saved value (see get_cane_weight_data's is_exists
+    # branch, which reads every field straight off the saved document).
+    data_key["do_not_allow_fuel"] = 0
     auto_token_details= get_auto_token_details_form_trip_sheet(t.name)
 
     data_key["cart_no"] = t.cart_no
@@ -395,6 +400,11 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                 if (field.fieldname not in excluded_fields and
                     field.fieldtype not in ['Column Break', 'Section Break', 'Tab Break']):
                     data[field.fieldname] = cw_doc.get(field.fieldname)
+
+            # "name" isn't in cw_doc.meta.fields (it's a standard framework
+            # column, not a DocType-defined field) but the EXE needs it to
+            # build the Print View URL for an already-saved document.
+            data["name"] = cw_doc.name
 
             data["binding_weight_percent"] = get_binding_weight_percentage(cw_doc.transporter_vehicle_type) or 1
 
