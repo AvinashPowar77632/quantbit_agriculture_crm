@@ -73,6 +73,19 @@ class CaneWeight(Document):
 		weight = frappe.get_value("Weight Settings Details",{"vehicle_type":self.transporter_vehicle_type},"percentage")
 		return weight or 1
 
+	def validate(self):
+		self.restrict_fuel_to_last_trip_sheet()
+
+	def restrict_fuel_to_last_trip_sheet(self):
+		"""Extra Fuel Allocation / Diesel Allocation are only given to the last trip
+		sheet of an Auto Token - the first and in-between ones always get 0."""
+		if not self.trip_sheet or self.docstatus == 2:
+			return
+		from quantbit_agriculture_crm.exe_api import is_last_trip_sheet_of_auto_token
+		if not is_last_trip_sheet_of_auto_token(self.trip_sheet):
+			self.extra_fuel_allocation = 0
+			self.diesel_allocation = 0
+
 	def before_submit(self):
 		if self.gross_weight <= 0:
 			frappe.throw("Gross Weight must be greater than zero.")
@@ -92,10 +105,16 @@ class CaneWeight(Document):
 	def on_cancel_status_change(self):
 		trip_id= [self.trip_sheet]
 		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Submitted Token")
+		if flt(self.diesel_allocation) > 0:
+			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=0)
 
 	def on_submit_status_change(self):
 		trip_id= [self.trip_sheet]
 		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Weight Done")
+		# Diesel was given against this trip sheet's Auto Token (only the last trip
+		# sheet of a token ever gets a non-zero allocation) - mark it on the Trip Sheet.
+		if flt(self.diesel_allocation) > 0:
+			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=1)
 
 
 @frappe.whitelist()

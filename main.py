@@ -359,6 +359,7 @@ class MainWindow(QWidget):
         # Get Data's "binding_weight_percent" (see _populate_cane_weight_form_from_exe_api)
         self._cane_weight_binding_percent = 1
         self._base_diesel_allocation = 0.0
+        self._diesel_allocation_allowed = True  # False -> Diesel Allocation stays 0 (see exe_api.diesel_allocation_method)
         self.posting_datetime_timer = QTimer(self)
         self.posting_datetime_timer.timeout.connect(self._tick_posting_datetime)
         self.posting_datetime_timer.start(1000)
@@ -511,7 +512,9 @@ class MainWindow(QWidget):
         (not just while that tab is focused), same as any regular menu shortcut."""
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_form)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self.submit_form)
-        QShortcut(QKeySequence("Ctrl+M"), self, activated=self.clear_form)
+        # Clear Form has several shortcuts.
+        for clear_key in ("Ctrl+M", "Ctrl+Q", "Ctrl+W", "Ctrl+N"):
+            QShortcut(QKeySequence(clear_key), self, activated=self.clear_form)
         QShortcut(QKeySequence("Ctrl+P"), self, activated=self.print_cane_weight_form)
         QShortcut(QKeySequence("Ctrl+H"), self, activated=self.view_submitted_cane_weight_records)
 
@@ -1042,6 +1045,21 @@ class MainWindow(QWidget):
         except Exception as e:
             self.output.append(f"[Cane Weight API] Could not set field '{field_key}': {e}")
 
+    def _apply_diesel_allocation_allowed(self):
+        """Extra Fuel Allocation can only be given on the last trip sheet of an
+        Auto Token - for any other trip sheet it's cleared and locked."""
+        allowed = getattr(self, "_diesel_allocation_allowed", True)
+        extra_widget = self.form_fields.get("extra_fuel_allocation")
+        if extra_widget is None:
+            return
+        if not allowed:
+            extra_widget.setText("0")
+        extra_widget.setReadOnly(not allowed)
+        if not allowed:
+            # Only needed to force Diesel Allocation to 0 - when allowed, the values the
+            # API/draft already supplied are left exactly as they came.
+            self._recalculate_diesel_allocation()
+
     def _recalculate_diesel_allocation(self):
         """Dynamically recalculate diesel_allocation = base + heavy_vehicle_allowance + extra_fuel_allocation"""
         try:
@@ -1059,6 +1077,8 @@ class MainWindow(QWidget):
             heavy_val = 0.0
         base_val = getattr(self, "_base_diesel_allocation", 0.0)
         total = round(base_val + heavy_val + extra_val, 2)
+        if not getattr(self, "_diesel_allocation_allowed", True):
+            total = 0.0
         diesel_widget = self.form_fields.get("diesel_allocation")
         if diesel_widget is not None:
             diesel_widget.setText(str(total))
@@ -1104,6 +1124,10 @@ class MainWindow(QWidget):
             if key in data:
                 self._set_form_field_value(key, data.get(key))
 
+        # Only the last trip sheet of an Auto Token gets diesel / extra fuel; the API flags
+        # every other one as not allowed (absent = allowed).
+        self._diesel_allocation_allowed = bool(data.get("diesel_allocation_allowed", 1))
+
         base_alloc = data.get("base_allocation")
         if base_alloc is not None:
             self._base_diesel_allocation = float(base_alloc)
@@ -1112,6 +1136,9 @@ class MainWindow(QWidget):
             h_alloc = float(data.get("heavy_vehicle_fuel_allowance") or 0.0)
             e_alloc = float(data.get("extra_fuel_allocation") or 0.0)
             self._base_diesel_allocation = max(0.0, d_alloc - h_alloc - e_alloc)
+
+        # Needs _base_diesel_allocation above to be current before it recalculates.
+        self._apply_diesel_allocation_allowed()
 
         # Needed by _build_cane_weight_payload to recompute cane_weight/binding_weight/
         # net_weight the same way CaneWeight.actual_weight() does server-side.
@@ -1315,7 +1342,6 @@ class MainWindow(QWidget):
         self.form_fields["company"] = company_edit
 
         edit_check = QCheckBox()
-        edit_check.setToolTip("Check to manually set Posting Date/Time; uncheck to snap back to the live system clock.")
         self.form_fields["edit"] = edit_check
         edit_check.stateChanged.connect(self._on_edit_posting_datetime_toggled)
 
@@ -1647,13 +1673,11 @@ class MainWindow(QWidget):
 
         trip_sheet_edit = QLineEdit()
         trip_sheet_edit.setPlaceholderText("e.g. 134")
-        trip_sheet_edit.setToolTip('Enter only the number - the "TS/2627/" prefix for the selected Season is added automatically.')
         trip_sheet_edit.setStyleSheet("font-size: 22px; font-weight: bold; color: red;")
         self.form_fields["trip_sheet"] = trip_sheet_edit
         trip_sheet_edit.returnPressed.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
 
         get_data_btn = QPushButton("Get Data")
-        get_data_btn.setToolTip("Fetch Cane Weight data for this Trip Sheet No. and auto-fill the form")
         get_data_btn.clicked.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
 
         # Heavy Vehicle checkbox, Extra Fuel Allocation and Diesel Allocation
@@ -1663,7 +1687,6 @@ class MainWindow(QWidget):
         # checkbox to decide whether that allowance is added into Diesel
         # Allocation or not (see _recalculate_diesel_allocation).
         heavy_vehicle_check = QCheckBox()
-        heavy_vehicle_check.setToolTip("When checked, Heavy Vehicle Fuel Allowance is added into Diesel Allocation.")
         self.form_fields["heavy_vehicle"] = heavy_vehicle_check
         heavy_vehicle_check.stateChanged.connect(self._recalculate_diesel_allocation)
 
@@ -1679,7 +1702,6 @@ class MainWindow(QWidget):
         # shows Diesel Allocation as 0 on the printed slip when this is
         # checked, regardless of the actual calculated/saved value.
         do_not_allow_fuel_check = QCheckBox()
-        do_not_allow_fuel_check.setToolTip("Print-only flag: when checked, the printed slip shows Diesel Allocation as 0.")
         self.form_fields["do_not_allow_fuel"] = do_not_allow_fuel_check
 
         top_row_layout.addWidget(QLabel("Trip Sheet No."))
@@ -1767,14 +1789,12 @@ class MainWindow(QWidget):
 
         gross_weight_edit = field("gross_weight")
         gross_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
-        gross_weight_edit.setToolTip("Type the weight manually, or use 'Get Gross Weight' to capture it from the connected weighbridge.")
         gross_weight_edit.setStyleSheet(weight_value_style)
         # Stamp the actual capture moment for manual entry too, same as
         # get_gross_weight() does for a weighbridge-captured reading.
         gross_weight_edit.editingFinished.connect(self._on_gross_weight_manually_edited)
         tare_weight_edit = field("tare_weight")
         tare_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
-        tare_weight_edit.setToolTip("Type the weight manually, or use 'Get Tare Weight' to capture it from the connected weighbridge.")
         tare_weight_edit.setStyleSheet(weight_value_style)
         tare_weight_edit.editingFinished.connect(self._on_tare_weight_manually_edited)
 
@@ -1790,18 +1810,18 @@ class MainWindow(QWidget):
 
         weight_rows = [
             [
-                ("Gross Weight Bridge", field("gross_weight_bridge", read_only=True)),
+                ("GW Bridge", field("gross_weight_bridge", read_only=True)),
                 ("Gross Weight", gross_weight_edit),
                 (None, get_gross_btn),
-                ("Gross Weight Bridge User", gross_weight_bridge_user_edit),
-                ("Gross Weight Timestamp", datetime_field("gross_weight_timestamp", read_only=True)),
+                ("GW User", gross_weight_bridge_user_edit),
+                ("GW Timestamp", datetime_field("gross_weight_timestamp", read_only=True)),
             ],
             [
-                ("Tare Weight Bridge", field("tare_weight_bridge", read_only=True)),
+                ("TWBridge", field("tare_weight_bridge", read_only=True)),
                 ("Tare Weight", tare_weight_edit),
                 (None, get_tare_btn),
-                ("Tare Weight Bridge User", tare_weight_bridge_user_edit),
-                ("Tare Weight Timestamp", datetime_field("tare_weight_timestamp", read_only=True)),
+                ("TW User", tare_weight_bridge_user_edit),
+                ("TW Timestamp", datetime_field("tare_weight_timestamp", read_only=True)),
             ],
             [
                 ("Cane Weight", field("cane_weight", read_only=True)),
@@ -1873,6 +1893,13 @@ class MainWindow(QWidget):
 
         self.cane_weight_print_btn = QPushButton("Print")
         self.cane_weight_print_btn.setObjectName("printBtn")
+        self.cane_weight_print_btn.setStyleSheet(
+            "QPushButton { background-color: #28A745; color: white; font-weight: bold; "
+            "border: none; border-radius: 4px; } "
+            "QPushButton:hover { background-color: #218838; } "
+            "QPushButton:pressed { background-color: #1E7E34; } "
+            "QPushButton:disabled { background-color: #94D3A2; }"
+        )
         self.cane_weight_print_btn.clicked.connect(self.print_cane_weight_form)
         self.cane_weight_print_btn.setMinimumHeight(40)
         self.cane_weight_print_btn.setMinimumWidth(120)
@@ -3139,7 +3166,6 @@ class MainWindow(QWidget):
         loaded_weight_edit = field("loaded_weight", QLineEdit("0"))
         loaded_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
         loaded_weight_edit.setReadOnly(True)
-        loaded_weight_edit.setToolTip("Read Only unless 'Manually Weight' is checked. Otherwise, use 'Get Gross Weight' to capture it from the connected weighbridge.")
 
         get_gross_btn = QPushButton("Get Gross Weight")
         get_gross_btn.clicked.connect(self.get_other_weight_gross_weight)
@@ -3158,7 +3184,6 @@ class MainWindow(QWidget):
         empty_weight_edit = field("empty_weight", QLineEdit("0"))
         empty_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
         empty_weight_edit.setReadOnly(True)
-        empty_weight_edit.setToolTip("Read Only unless 'Manually Tare Weight' is checked. Otherwise, use 'Get Tare Weight' to capture it from the connected weighbridge.")
 
         get_tare_btn = QPushButton("Get Tare Weight")
         get_tare_btn.clicked.connect(self.get_other_weight_tare_weight)
@@ -6463,6 +6488,8 @@ class MainWindow(QWidget):
         # until the next Get Data call sets it (see _build_cane_weight_payload).
         self._cane_weight_binding_percent = 1
         self._base_diesel_allocation = 0.0
+        self._diesel_allocation_allowed = True
+        self._apply_diesel_allocation_allowed()
         # New/blank form - no existing Cane Weight document yet, so only Save applies.
         self._update_cane_weight_action_buttons("")
         # No document to print until the next Save/Submit/Get Data.
@@ -6488,6 +6515,16 @@ class MainWindow(QWidget):
                 "This Cane Weight entry hasn't been saved yet - Save or Submit it "
                 "first, or fetch an existing saved record, before printing."
             )
+            return
+
+        self._open_cane_weight_print_view(doc_name)
+
+    def _open_cane_weight_print_view(self, doc_name):
+        """Open the Frappe Print View for the given Cane Weight document name in
+        the default browser (shared by the Print button/Ctrl+P and the per-row
+        Print buttons in the View Submitted Records dialog)."""
+        if not self.primary_frappe_site_url:
+            QMessageBox.warning(self, "Warning", "Primary Frappe site URL is not configured.")
             return
 
         base_url = self.primary_frappe_site_url.rstrip("/")
@@ -8748,10 +8785,10 @@ class MainWindow(QWidget):
             dialog.resize(900, 400)
 
             dialog_layout = QVBoxLayout(dialog)
-            table = QTableWidget(len(data), len(fields))
+            table = QTableWidget(len(data), len(fields) + 1)
             table.setHorizontalHeaderLabels([
                 "Name", "Season", "Branch", "Slip No", "Farmer",
-                "Vehicle Number", "Cane Weight", "Modified"
+                "Vehicle Number", "Cane Weight", "Modified", "Print"
             ])
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -8769,6 +8806,19 @@ class MainWindow(QWidget):
                 table.setItem(row, 5, QTableWidgetItem(str(record.get("vehicle_no", ""))))
                 table.setItem(row, 6, QTableWidgetItem(str(record.get("net_weight", ""))))
                 table.setItem(row, 7, QTableWidgetItem(str(record.get("modified", ""))))
+
+                print_btn = QPushButton("Print")
+                print_btn.setStyleSheet(
+                    "QPushButton { background-color: #FF8C00; color: white; font-weight: bold; "
+                    "border: none; border-radius: 3px; padding: 4px 10px; } "
+                    "QPushButton:hover { background-color: #E67E00; } "
+                    "QPushButton:pressed { background-color: #CC7000; }"
+                )
+                record_name = str(record.get("name", "")).strip()
+                print_btn.clicked.connect(
+                    lambda _checked=False, n=record_name: self._open_cane_weight_print_view(n)
+                )
+                table.setCellWidget(row, 8, print_btn)
 
             dialog_layout.addWidget(table)
 
@@ -8981,7 +9031,7 @@ class LoginPage(QWidget):
         form_layout.addWidget(QLabel("Site URL:"), 0, 0)
         self.site_url_input = QLineEdit()
         self.site_url_input.setPlaceholderText("e.g., http://103.219.1.138:4424/")
-        self.site_url_input.setText("https://uatkranti.quantcloud.in")
+        self.site_url_input.setText("http://192.168.2.4:8083")
         form_layout.addWidget(self.site_url_input, 0, 1)
 
         form_layout.addWidget(QLabel("Username:"), 1, 0)

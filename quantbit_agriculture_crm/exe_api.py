@@ -74,14 +74,17 @@ def get_data(trip_sheet, season, posting_date, posting_time):
         distance=t.distance or 0,
         extra_fuel_allocation=0,
         heavy_vehicle=0,
+        trip_sheet=t.name,
     )
     if isinstance(fuel_data, dict):
+        data_key["diesel_allocation_allowed"] = fuel_data.get("diesel_allocation_allowed", 1)
         data_key["diesel_allocation"] = fuel_data.get("diesel_allocation", 0.0)
         data_key["heavy_vehicle"] = 0
         data_key["heavy_vehicle_fuel_allowance"] = fuel_data.get("heavy_vehicle_fuel_allowance", 0.0)
         data_key["extra_fuel_allocation"] = fuel_data.get("extra_fuel_allocation", 0.0)
         data_key["base_allocation"] = fuel_data.get("base_allocation", 0.0)
     else:
+        data_key["diesel_allocation_allowed"] = 1
         data_key["diesel_allocation"] = fuel_data
         data_key["heavy_vehicle"] = 0
         data_key["heavy_vehicle_fuel_allowance"] = 0.0
@@ -179,17 +182,89 @@ def get_data(trip_sheet, season, posting_date, posting_time):
 
     return data_key
 
+def is_last_trip_sheet_of_auto_token(trip_sheet):
+    """True when `trip_sheet` is the last trip sheet still to be weighed under its
+    Auto Token, i.e. every *other* trip sheet on that Auto Token is already in
+    "Weight Done" status (set when its Cane Weight is submitted - see
+    CaneWeight.on_submit_status_change). A trip sheet that isn't on any Auto Token
+    has nothing to be "before" or "after", so it counts as last.
+
+    Where the Auto Token grouping comes from depends on Weight Settings >
+    "Cane Yard Entry Through Auto Token":
+      - checked:   the Auto Token document's own Trip Sheet Details table.
+      - unchecked: the "Auto Token No" stored on the Trip Sheet form itself
+                   (Trip Sheets sharing the same auto_token_no)."""
+    through_auto_token = cint(
+        frappe.db.get_single_value("Weight Settings", "cane_yard_entry_through_auto_token") or 0
+    )
+
+    if through_auto_token:
+        token_parents = frappe.db.sql("""
+            SELECT DISTINCT d.parent
+            FROM `tabAuto Token Trip sheet Details` d
+            INNER JOIN `tabAuto Token` a ON a.name = d.parent
+            WHERE d.trip_sheet_no = %s AND a.docstatus < 2
+        """, (trip_sheet,), as_list=True)
+        if not token_parents:
+            return True
+
+        for (parent,) in token_parents:
+            pending = frappe.db.sql("""
+                SELECT COUNT(*)
+                FROM `tabAuto Token Trip sheet Details` d
+                INNER JOIN `tabTrip Sheet` t ON t.name = d.trip_sheet_no
+                WHERE d.parent = %s
+                  AND d.trip_sheet_no != %s
+                  AND IFNULL(t.status, '') != 'Weight Done'
+            """, (parent, trip_sheet))[0][0]
+            if pending:
+                return False
+        return True
+
+    auto_token_no = frappe.db.get_value("Trip Sheet", trip_sheet, "auto_token_no")
+    if not auto_token_no:
+        return True
+
+    pending = frappe.db.sql("""
+        SELECT COUNT(*)
+        FROM `tabTrip Sheet`
+        WHERE auto_token_no = %s
+          AND name != %s
+          AND IFNULL(status, '') != 'Weight Done'
+    """, (auto_token_no, trip_sheet))[0][0]
+    return not pending
+
+
 @frappe.whitelist()
-def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, heavy_vehicle=0, as_dict=True):
+def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, heavy_vehicle=0, as_dict=True, trip_sheet=None):
     """heavy_vehicle here is the Cane Weight "Heavy Vehicle" checkbox state as set
     by the operator in the EXE - NOT this vehicle type's own Fuel Allocation
     Criteria flag. The allowance is only ever added into diesel_allocation when
     the operator has actually checked that box (heavy_vehicle=1); it defaults to
     0 (not applied) so a fresh Get Data fetch never auto-applies it just because
-    the vehicle type happens to be configured as Heavy Vehicle."""
+    the vehicle type happens to be configured as Heavy Vehicle.
+
+    When `trip_sheet` is given, diesel is additionally gated per Auto Token: only
+    the last trip sheet of an Auto Token (see is_last_trip_sheet_of_auto_token)
+    receives an allocation; every other trip sheet gets 0 across the board. Heavy
+    Vehicle logic then applies on top of that as usual. Without `trip_sheet` no
+    gating is applied. (Trip Sheet "Diesel Allocated" is an output flag, set by
+    CaneWeight once diesel has actually been allocated - it isn't an input here.)"""
     distance = flt(distance)
     extra_fuel = flt(extra_fuel_allocation or 0)
     heavy_vehicle = cint(heavy_vehicle or 0)
+
+    if trip_sheet:
+        if not is_last_trip_sheet_of_auto_token(trip_sheet):
+            res = {
+                "diesel_allocation": 0.0,
+                "heavy_vehicle": 0,
+                "heavy_vehicle_fuel_allowance": 0.0,
+                "extra_fuel_allocation": 0.0,
+                "base_allocation": 0.0,
+                "diesel_allocation_allowed": 0,
+            }
+            return res if (as_dict in (True, 1, "1", "True")) else res["diesel_allocation"]
 
     alloc_criteria = frappe.db.get_value(
         "Fuel Allocation Criteria",
@@ -405,6 +480,10 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
             # column, not a DocType-defined field) but the EXE needs it to
             # build the Print View URL for an already-saved document.
             data["name"] = cw_doc.name
+
+            # Extra Fuel / Diesel Allocation are only ever allowed on the last trip
+            # sheet of an Auto Token - tell the EXE so it can lock the Extra Fuel field.
+            data["diesel_allocation_allowed"] = 1 if is_last_trip_sheet_of_auto_token(trip_sheet) else 0
 
             data["binding_weight_percent"] = get_binding_weight_percentage(cw_doc.transporter_vehicle_type) or 1
 
