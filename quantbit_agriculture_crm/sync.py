@@ -67,16 +67,37 @@ def _safe_convert(obj, table_fields, unexpected_lists, is_table_list=False):
     return obj
 
 
-def _mark_trip_sheet_synced_on_remote(session, base_url, name):
-    """Best-effort notify the remote site that a Trip Sheet was pulled in successfully."""
+def _mark_trip_sheets_synced_on_remote(session, base_url, names):
+    """Notify the remote site in batch that Trip Sheets were pulled in successfully, setting is_sync=1."""
+    if not names:
+        return
     try:
-        session.put(
-            f"{base_url}/api/resource/Trip Sheet/{name}",
-            json={"is_sync": 1},
-            timeout=10
+        # Call dedicated whitelist method on remote server
+        resp = session.post(
+            f"{base_url}/api/method/quantbit_agriculture_crm.exe_api.mark_trip_sheets_as_synced",
+            data={"trip_sheets": json.dumps(names)},
+            timeout=15,
         )
+        if resp.status_code == 200:
+            res_json = resp.json()
+            msg = res_json.get("message")
+            if isinstance(msg, dict) and not msg.get("success"):
+                _log("Remote Mark Synced Warning", f"Remote returned failure: {msg.get('message')}")
+        elif resp.status_code == 404:
+            # Fallback if remote server hasn't been updated with mark_trip_sheets_as_synced yet
+            for name in names:
+                try:
+                    session.put(
+                        f"{base_url}/api/resource/Trip Sheet/{name}",
+                        json={"is_sync": 1},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+        else:
+            _log("Remote Mark Synced Error", f"Status {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        _log("Remote Update Error", f"{name}: Failed to mark as synced: {str(e)}")
+        _log("Remote Mark Synced Exception", f"Failed to mark batch as synced: {str(e)}")
 
 
 @frappe.whitelist()
@@ -264,8 +285,7 @@ def sync_trip_sheet_remote_to_local():
                     # The savepoint above still isolates a bad record from a good one.
                     if len(pending_remote_updates) >= TRIP_SHEET_COMMIT_BATCH_SIZE:
                         frappe.db.commit()
-                        for synced_name in pending_remote_updates:
-                            _mark_trip_sheet_synced_on_remote(session, base_url, synced_name)
+                        _mark_trip_sheets_synced_on_remote(session, base_url, pending_remote_updates)
                         pending_remote_updates = []
 
                 except Exception as e:
@@ -278,8 +298,8 @@ def sync_trip_sheet_remote_to_local():
             # Flush whatever is left in the batch for this site
             if pending_remote_updates:
                 frappe.db.commit()
-                for synced_name in pending_remote_updates:
-                    _mark_trip_sheet_synced_on_remote(session, base_url, synced_name)
+                _mark_trip_sheets_synced_on_remote(session, base_url, pending_remote_updates)
+                pending_remote_updates = []
 
         msg = f"Sync done: {total_synced} OK, {total_failed} failed"
         _log("Sync Complete", msg)

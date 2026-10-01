@@ -835,6 +835,56 @@ def sync_trip_sheets():
 
 
 @frappe.whitelist()
+def mark_trip_sheets_as_synced(trip_sheets=None):
+    """
+    Mark Trip Sheets as synced (is_sync = 1) on remote server.
+    Accepts a single trip sheet name or a list/JSON-encoded array of names.
+    Directly updates `is_sync` via SQL to bypass document submit/validation restrictions.
+    """
+    try:
+        if not trip_sheets:
+            return {"success": False, "message": "No trip sheets provided"}
+
+        if isinstance(trip_sheets, str):
+            try:
+                trip_sheets = json.loads(trip_sheets)
+            except (json.JSONDecodeError, TypeError):
+                trip_sheets = [s.strip() for s in trip_sheets.split(",") if s.strip()]
+
+        if not isinstance(trip_sheets, list):
+            trip_sheets = [trip_sheets]
+
+        trip_sheets = [ts for ts in trip_sheets if ts]
+        if not trip_sheets:
+            
+            return {"success": False, "message": "No valid trip sheets provided"}
+
+        # Direct SQL update works reliably for both draft and submitted (docstatus=1) documents
+        frappe.db.sql(
+            """
+            UPDATE `tabTrip Sheet`
+            SET is_sync = 1
+            WHERE name IN %s
+            """,
+            (tuple(trip_sheets),)
+        )
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Successfully marked {len(trip_sheets)} trip sheet(s) as synced",
+            "updated_count": len(trip_sheets)
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error in mark_trip_sheets_as_synced: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}"
+        }
+
+
+@frappe.whitelist()
 def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, cane_registration=None, farmer=None):
     """
     Fetch Trip Sheets dynamically based on provided filters (transporter_contract,
