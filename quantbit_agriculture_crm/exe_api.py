@@ -97,7 +97,8 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["do_not_allow_fuel"] = 0
     auto_token_details= get_auto_token_details_form_trip_sheet(t.name)
 
-    data_key["cart_no"] = t.cart_no
+    # Backward compatibility if any client reads cart_no
+    data_key["cart_no"] = t.get("cart_no_1") or t.get("cart_no")
     data_key["json"] = t.json
     data_key["binding_weight_percent"] = get_binding_weight_percentage(t.transporter_vehicle_type) or 1
 
@@ -129,7 +130,10 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["trolly_1"] = t.trolly_1
     data_key["trolly_2"] = t.trolly_2
     data_key["ht_driver"] = t.ht_driver
-    data_key["cart_no"] = t.cart_no
+    data_key["cart_no_1"] = t.get("cart_no_1")
+    data_key["cart_no_2"] = t.get("cart_no_2")
+    data_key["trolly_trailer_1"] = t.get("trolly_trailer_1")
+    data_key["trolly_trailer_2"] = t.get("trolly_trailer_2")
     data_key["harvester_name"] = t.harvester_name
     data_key["harvester_vehicle_type"] = t.harvester_vehicle_type
     data_key["harvester_gang_type"] = t.harvester_gang_type
@@ -539,6 +543,8 @@ def _find_existing_cane_weight(trip_sheet):
 def _apply_actual_weight(doc, data):
     """Load posted data onto a Cane Weight doc and recompute its weight fields."""
     doc.update(data)
+    if not doc.get("cart_no_1") and data.get("cart_no"):
+        doc.cart_no_1 = data.get("cart_no")
     doc.actual_weight()
     doc.calculate_penalty_weights()
     return doc
@@ -826,3 +832,180 @@ def sync_trip_sheets():
             "success": False,
             "message": f"Error: {str(e)}"
         }
+
+
+@frappe.whitelist()
+def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, cane_registration=None, farmer=None):
+    """
+    Fetch Trip Sheets dynamically based on provided filters (transporter_contract,
+    trip_sheet_no, cane_registration, farmer).
+    Supports substring/contains search (e.g. typing '12' matches any record where '12'
+    exists in transporter_contract or transporter_name, or in trip sheet name or slip_no).
+    """
+    fields = [
+        "name", "slip_no", "status", "auto_token_no",
+        "trolly_1", "trolly_2", "trolly_trailer_1", "trolly_trailer_2",
+        "rope_placement", "transporter_vehicle_type",
+        "ht_driver", "ht_driver_name",
+        "farmer", "farmer_name",
+        "cane_registration",
+        "transporter_contract", "transporter", "transporter_name",
+        "harvester_contract", "harvester", "harvester_name",
+        "vehicle_no"
+    ]
+
+    tc = (transporter_contract or "").strip()
+    ts = (trip_sheet_no or "").strip()
+    cr = (cane_registration or "").strip()
+    fm = (farmer or "").strip()
+
+    where_clauses = ["IFNULL(name, '') != ''"]
+    params = []
+
+    if tc:
+        where_clauses.append("(transporter_contract LIKE %s OR transporter_name LIKE %s OR transporter LIKE %s)")
+        params.extend([f"%{tc}%", f"%{tc}%", f"%{tc}%"])
+
+    if ts:
+        where_clauses.append("(name LIKE %s OR CAST(slip_no AS CHAR) LIKE %s OR trip_sheet LIKE %s)")
+        params.extend([f"%{ts}%", f"%{ts}%", f"%{ts}%"])
+
+    if cr:
+        where_clauses.append("(cane_registration LIKE %s)")
+        params.append(f"%{cr}%")
+
+    if fm:
+        where_clauses.append("(farmer LIKE %s OR farmer_name LIKE %s)")
+        params.extend([f"%{fm}%", f"%{fm}%"])
+
+    where_sql = " AND ".join(where_clauses)
+    fields_sql = ", ".join(f"`{f}`" for f in fields)
+
+    trip_sheets = frappe.db.sql(f"""
+        SELECT {fields_sql}
+        FROM `tabTrip Sheet`
+        WHERE {where_sql}
+        ORDER BY creation DESC
+        LIMIT 500
+    """, tuple(params), as_dict=True)
+
+    # If the user searched for a specific trip sheet and it has an auto token,
+    # ensure any companion trip sheets for that auto token are also included.
+    token_nos = set()
+    for s in trip_sheets:
+        token = (s.get("auto_token_no") or "").strip()
+        if token and (ts == s.get("name") or ts == str(s.get("slip_no"))):
+            token_nos.add(token)
+
+    if token_nos:
+        existing_names = {s["name"] for s in trip_sheets}
+        placeholders = ", ".join(["%s"] * len(token_nos))
+        companion_sheets = frappe.db.sql(f"""
+            SELECT {fields_sql}
+            FROM `tabTrip Sheet`
+            WHERE auto_token_no IN ({placeholders})
+            ORDER BY creation ASC
+        """, tuple(token_nos), as_dict=True)
+        for cs in companion_sheets:
+            if cs["name"] not in existing_names:
+                trip_sheets.append(cs)
+                existing_names.add(cs["name"])
+
+    # Determine auto token no for response if single token group
+    auto_token_no = ""
+    if len(trip_sheets) == 1 or len(token_nos) == 1:
+        auto_token_no = trip_sheets[0].get("auto_token_no") or ""
+
+    # Normalize fields for each record so every column is ready
+    for s in trip_sheets:
+        s["trolly_trailer_1"] = s.get("trolly_trailer_1") or s.get("trolly_1") or ""
+        s["trolly_trailer_2"] = s.get("trolly_trailer_2") or s.get("trolly_2") or ""
+        s["ht_driver"] = s.get("ht_driver_name") or s.get("ht_driver") or ""
+
+        f_code = s.get("farmer") or ""
+        f_name = s.get("farmer_name") or ""
+        s["farmer"] = f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code)
+
+        tc_code = s.get("transporter_contract") or ""
+        tc_name = s.get("transporter_name") or ""
+        s["transporter_contract_name"] = tc_code or tc_name
+
+        hc_code = s.get("harvester_contract") or ""
+        hc_name = s.get("harvester_name") or ""
+        s["harvester_contract_name"] = hc_code or hc_name
+
+    return {
+        "auto_token": auto_token_no,
+        "auto_token_no": auto_token_no,
+        "count": len(trip_sheets),
+        "trip_sheets": trip_sheets,
+        "sheets": trip_sheets
+    }
+
+
+@frappe.whitelist()
+def get_trip_sheet_filter_options(transporter_contract=None, trip_sheet=None):
+    """
+    Fetch distinct transporter contracts and trip sheets from Trip Sheet list
+    to provide the option set of values for filters.
+    Supports partial/contains search for transporter_contract and trip_sheet.
+    """
+    contracts = frappe.db.sql("""
+        SELECT DISTINCT transporter_contract, transporter_name
+        FROM `tabTrip Sheet`
+        WHERE IFNULL(transporter_contract, '') != ''
+        ORDER BY transporter_contract ASC
+    """, as_dict=True)
+
+    contract_list = []
+    contract_options = []
+    for c in contracts:
+        code = (c.get("transporter_contract") or "").strip()
+        t_name = (c.get("transporter_name") or "").strip()
+        if code and code not in contract_list:
+            contract_list.append(code)
+            display = f"{code} - {t_name}" if t_name else code
+            contract_options.append(display)
+
+    where_clauses = ["IFNULL(name, '') != ''"]
+    params = []
+
+    if transporter_contract:
+        tc_val = str(transporter_contract).strip()
+        where_clauses.append("(transporter_contract LIKE %s OR transporter_name LIKE %s)")
+        params.extend([f"%{tc_val}%", f"%{tc_val}%"])
+
+    if trip_sheet:
+        ts_val = str(trip_sheet).strip()
+        where_clauses.append("(name LIKE %s OR CAST(slip_no AS CHAR) LIKE %s)")
+        params.extend([f"%{ts_val}%", f"%{ts_val}%"])
+
+    where_sql = " AND ".join(where_clauses)
+
+    trip_sheets = frappe.db.sql(f"""
+        SELECT name, slip_no, transporter_contract, transporter_name, auto_token_no, status
+        FROM `tabTrip Sheet`
+        WHERE {where_sql}
+        ORDER BY creation DESC
+        LIMIT 500
+    """, tuple(params), as_dict=True)
+
+    sheet_names = []
+    sheet_options = []
+    for ts in trip_sheets:
+        s_name = (ts.get("name") or "").strip()
+        s_slip = ts.get("slip_no")
+        if s_name:
+            sheet_names.append(s_name)
+            display = f"{s_name} (Slip: {s_slip})" if s_slip else s_name
+            sheet_options.append(display)
+
+    return {
+        "success": True,
+        "transporter_contracts": contract_list,
+        "transporter_contract_options": contract_options,
+        "trip_sheets": sheet_names,
+        "trip_sheet_options": sheet_options,
+        "trip_sheet_details": trip_sheets
+    }
+

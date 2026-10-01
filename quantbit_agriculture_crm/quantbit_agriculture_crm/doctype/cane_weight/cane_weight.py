@@ -139,3 +139,9 @@ def status_change(doctype: str, docnames: List[str], status_field: str, status: 
         tuple([status] + list(docnames)),
     )
     frappe.db.commit()
+
+
+@frappe.whitelist()
+def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None):
+    from quantbit_agriculture_crm.exe_api import get_auto_token_trip_sheets as _get_auto_token_trip_sheets
+    return _get_auto_token_trip_sheets(transporter_contract=transporter_contract, trip_sheet_no=trip_sheet_no)

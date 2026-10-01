@@ -58,16 +58,19 @@
   "transporter_vehicle_type",
   "transporter_gang_type",
   "ht_driver",
+  "cart_no_2",
   "column_break_nkfy",
   "harvester",
   "harvester_vehicle_type",
   "harvester_gang_type",
-  "cart_no",
+  "cart_no_1",
+  "trolly_trailer_1",
   "column_break_hadq",
   "vehicle_no",
   "trolly_1",
   "trolly_2",
   "rope_placement",
+  "trolly_trailer_2",
   "section_break_sleq",
   "gross_weight",
   "gross_weight_bridge",
@@ -467,11 +470,6 @@
    "fieldname": "harvester_gang_type",
    "fieldtype": "Data",
    "label": "Harvester Gang Type"
-  },
-  {
-   "fieldname": "cart_no",
-   "fieldtype": "Data",
-   "label": "Cart No"
   },
   {
    "fieldname": "column_break_hadq",
@@ -952,13 +950,37 @@
    "fieldname": "do_not_allow_fuel",
    "fieldtype": "Check",
    "label": "Do Not Allow Fuel"
+  },
+  {
+   "fetch_from": "trip_sheet.cart_no_1",
+   "fieldname": "cart_no_1",
+   "fieldtype": "Data",
+   "label": "Cart No 1"
+  },
+  {
+   "fetch_from": "trip_sheet.trolly_trailer_1",
+   "fieldname": "trolly_trailer_1",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 1"
+  },
+  {
+   "fetch_from": "trip_sheet.trolly_trailer_2",
+   "fieldname": "trolly_trailer_2",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 2"
+  },
+  {
+   "fetch_from": "trip_sheet.cart_no_2",
+   "fieldname": "cart_no_2",
+   "fieldtype": "Data",
+   "label": "Cart No 2"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-23 16:10:12.568292",
+ "modified": "2026-09-29 10:11:53.831224",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Cane Weight",

@@ -59,7 +59,10 @@
   "harvester",
   "harvester_vehicle_type",
   "harvester_gang_type",
-  "cart_no",
+  "cart_no_1",
+  "cart_no_2",
+  "trolly_trailer_1",
+  "trolly_trailer_2",
   "column_break_hadq",
   "vehicle_no",
   "trolly_1",
@@ -453,9 +456,24 @@
    "label": "Harvester Gang Type"
   },
   {
-   "fieldname": "cart_no",
+   "fieldname": "cart_no_1",
    "fieldtype": "Data",
-   "label": "Cart No"
+   "label": "Cart No 1"
+  },
+  {
+   "fieldname": "cart_no_2",
+   "fieldtype": "Data",
+   "label": "Cart No 2"
+  },
+  {
+   "fieldname": "trolly_trailer_1",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 1"
+  },
+  {
+   "fieldname": "trolly_trailer_2",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 2"
   },
   {
    "fieldname": "column_break_hadq",

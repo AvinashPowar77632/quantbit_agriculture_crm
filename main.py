@@ -15,14 +15,69 @@ from PySide6.QtWidgets import (
     QFrame, QSplitter, QGroupBox, QGridLayout, QSpacerItem,
     QSizePolicy, QCheckBox, QSpinBox, QTabWidget, QProgressBar,
     QDateEdit, QDateTimeEdit, QScrollArea, QTableWidget, QTableWidgetItem,
-    QTimeEdit , QDoubleSpinBox , QHeaderView, QDialog, QAbstractItemView
+    QTimeEdit , QDoubleSpinBox , QHeaderView, QDialog, QAbstractItemView,
+    QStackedWidget, QTabBar, QCompleter
 )
-from PySide6.QtCore import QThread, Signal, Qt, QTimer, QDate, QDateTime, QTime, QUrl
+from PySide6.QtCore import (
+    QThread, Signal, Qt, QTimer, QDate, QDateTime, QTime, QUrl,
+    QSortFilterProxyModel,
+)
 from PySide6.QtGui import (
     QFont, QPalette, QColor, QIcon, QPixmap, QDoubleValidator, QTextCursor,
-    QShortcut, QKeySequence, QDesktopServices,
+    QShortcut, QKeySequence, QDesktopServices, QStandardItemModel, QStandardItem,
 )
 from urllib.parse import quote
+import os
+import base64
+
+try:
+    from assets_data import KRANTI_LOGO_B64, QUANTBIT_LOGO_B64
+except Exception:
+    KRANTI_LOGO_B64 = ""
+    QUANTBIT_LOGO_B64 = ""
+
+def get_local_or_remote_pixmap(filename, fallback_b64=None, remote_url=None):
+    """Load pixmap from local asset path, embedded base64, or remote URL (in priority order)."""
+    pixmap = QPixmap()
+    
+    # 1. Try local filesystem (development, installed, or PyInstaller bundle)
+    candidate_paths = []
+    if hasattr(sys, '_MEIPASS'):
+        candidate_paths.append(os.path.join(sys._MEIPASS, "assets", filename))
+        candidate_paths.append(os.path.join(sys._MEIPASS, filename))
+        candidate_paths.append(os.path.join(sys._MEIPASS, "public", "images", filename))
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    candidate_paths.append(os.path.join(script_dir, "assets", filename))
+    candidate_paths.append(os.path.join(script_dir, "quantbit_agriculture_crm", "public", "images", filename))
+    candidate_paths.append(os.path.join(script_dir, filename))
+    candidate_paths.append(os.path.join(os.getcwd(), "assets", filename))
+    candidate_paths.append(os.path.join(os.getcwd(), filename))
+
+    for path in candidate_paths:
+        if os.path.isfile(path):
+            if pixmap.load(path) and not pixmap.isNull():
+                return pixmap
+
+    # 2. Try embedded base64 string (ensures logo appears offline even without files)
+    if fallback_b64:
+        try:
+            data = base64.b64decode(fallback_b64)
+            if pixmap.loadFromData(data) and not pixmap.isNull():
+                return pixmap
+        except Exception:
+            pass
+
+    # 3. Try remote URL with short timeout as fallback
+    if remote_url:
+        try:
+            resp = requests.get(remote_url, timeout=3)
+            if resp.status_code == 200 and pixmap.loadFromData(resp.content) and not pixmap.isNull():
+                return pixmap
+        except Exception:
+            pass
+
+    return None
 
 class SerialReader(QThread):
     data_received = Signal(str)
@@ -205,6 +260,132 @@ class CollapsibleSection(QWidget):
             self._on_toggled()
 
 
+class SearchableComboBox(QComboBox):
+    """An editable QComboBox that dynamically filters its dropdown options as the user types,
+    supporting case-insensitive substring (contains) search via QSortFilterProxyModel
+    and QCompleter without resetting or overwriting what the user typed."""
+    def __init__(self, parent=None, placeholder=""):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)
+        self._all_items = []
+        self._is_updating = False
+
+        self.source_model = QStandardItemModel(self)
+        self.proxy_model = QSortFilterProxyModel(self)
+        self.proxy_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        self.proxy_model.setSourceModel(self.source_model)
+        self.setModel(self.proxy_model)
+
+        self.completer = QCompleter(self.proxy_model, self)
+        self.completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.completer.setFilterMode(Qt.MatchContains)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.setCompleter(self.completer)
+
+        # Style the popup views so options are clearly visible
+        popup_css = """
+            QListView {
+                background-color: #ffffff;
+                color: #0f172a;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px;
+                font-size: 13px;
+                selection-background-color: #2563eb;
+                selection-color: #ffffff;
+                outline: none;
+            }
+            QListView::item {
+                min-height: 28px;
+                padding: 4px 8px;
+                color: #0f172a;
+            }
+            QListView::item:hover, QListView::item:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+            }
+        """
+        comp_popup = self.completer.popup()
+        if comp_popup:
+            comp_popup.setStyleSheet(popup_css)
+
+        combo_view = self.view()
+        if combo_view:
+            combo_view.setStyleSheet(popup_css)
+
+        line_edit = self.lineEdit()
+        if line_edit:
+            if placeholder:
+                line_edit.setPlaceholderText(placeholder)
+            line_edit.setClearButtonEnabled(True)
+            line_edit.textEdited.connect(self._on_text_edited)
+            line_edit.returnPressed.connect(self._on_return_pressed)
+
+        self.activated.connect(self._on_combo_activated)
+
+    def _on_text_edited(self, text):
+        if self._is_updating:
+            return
+        query = text.strip()
+        self.proxy_model.setFilterFixedString(query)
+
+    def _on_return_pressed(self):
+        txt = self.currentText().strip()
+        self.proxy_model.setFilterFixedString("")
+        self.setCurrentText(txt)
+
+    def _on_combo_activated(self, idx):
+        txt = self.currentText().strip()
+        self.proxy_model.setFilterFixedString("")
+        self.setCurrentText(txt)
+
+    def showPopup(self):
+        # When opening the dropdown popup, reset the filter if input is empty
+        txt = self.currentText().strip()
+        if not txt:
+            self.proxy_model.setFilterFixedString("")
+        super().showPopup()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if self.lineEdit():
+            self.lineEdit().selectAll()
+
+    def set_items(self, items, preserve_text=True):
+        self._is_updating = True
+        current = self.currentText().strip() if preserve_text else ""
+        self._all_items = [str(it).strip() for it in items if str(it).strip()]
+        self.source_model.clear()
+        for item in self._all_items:
+            self.source_model.appendRow(QStandardItem(item))
+
+        self.proxy_model.setFilterFixedString("")
+
+        matched = None
+        if current:
+            for it in self._all_items:
+                if it == current or it.startswith(current + " ") or it.startswith(current + "-"):
+                    matched = it
+                    break
+
+        if matched:
+            self.setCurrentText(matched)
+        else:
+            self.setCurrentIndex(-1)
+            if self.lineEdit():
+                self.lineEdit().clear()
+        self._is_updating = False
+
+    def clear_selection(self):
+        self._is_updating = True
+        self.proxy_model.setFilterFixedString("")
+        self.setCurrentIndex(-1)
+        if self.lineEdit():
+            self.lineEdit().clear()
+        self._is_updating = False
+
+
 class MainWindow(QWidget):
     # Matches the "Cane Weight Penalty Charges" child DocType's Deduction
     # Method Select field options exactly.
@@ -257,6 +438,7 @@ class MainWindow(QWidget):
         self.bytes_received = 0
         self.bytes_sent = 0
         self.current_weight = None  # Store current weight from serial port
+        self.default_com_port = "COM1"  # Default RS232 COM port configuration (dynamic)
         self.form_fields = {}
         self.fuel_sale_fields = {}  # Initialize fuel sale form fields
         self.auto_token_fields = {}  # Initialize auto token form fields
@@ -285,7 +467,7 @@ class MainWindow(QWidget):
         # Primary Frappe Instance Settings (received from LoginPage)
         self.primary_frappe_username = primary_username
         self.primary_frappe_password = primary_password
-        self.primary_frappe_site_url = primary_site_url
+        self.primary_frappe_site_url = (primary_site_url or "").rstrip("/")
         self.primary_frappe_session = primary_session # Use requests.Session
         self.primary_frappe_logged_in = True # Already logged in via LoginPage
         
@@ -423,52 +605,37 @@ class MainWindow(QWidget):
                             f"Unexpected error during Trip Sheet auto-login: {error_msg}")
 
     def load_logo_icon(self):
-        """Load the logo image from URL and create a QIcon for the window."""
-        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
-        logo_pixmap = QPixmap()
+        """Load the logo image (local asset, base64, or URL) and create a QIcon for the window."""
+        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        if pixmap and not pixmap.isNull():
+            return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         
-        try:
-            response = requests.get(logo_url)
-            response.raise_for_status()  # Raise error for bad status codes
-            if logo_pixmap.loadFromData(response.content):
-                # Scale for icon (window icons are small; 32x32 or 64x64 works well)
-                logo_pixmap = logo_pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                icon = QIcon(logo_pixmap)
-                return icon
-            else:
-                raise ValueError("Failed to load pixmap from data")
-        except Exception as e:
-            # Fallback: Create a simple colored icon with text "QT" (Quantbit)
-            fallback_pixmap = QPixmap(64, 64)
-            fallback_pixmap.fill(QColor("#667eea"))  # Blue background
-            # painter = QPainter(fallback_pixmap)
-            # painter.setPen(QColor("white"))
-            # painter.setFont(QFont("Arial", 24, QFont.Bold))
-            # painter.drawText(fallback_pixmap.rect(), Qt.AlignCenter, "QT")
-            # painter.end()
-            fallback_icon = QIcon(fallback_pixmap)
-            
-            # Log error if output is available
-            if hasattr(self, 'output'):
-                self.output.append(f"[Window Icon] Failed to load logo from {logo_url}: {str(e)}. Using fallback icon.")
-            
-            return fallback_icon
+        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
+        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=logo_url)
+        if pixmap and not pixmap.isNull():
+            return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        fallback_pixmap = QPixmap(64, 64)
+        fallback_pixmap.fill(QColor("#dc2626"))
+        return QIcon(fallback_pixmap)
     
     def setup_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setSpacing(10)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(10, 8, 10, 8)
         
-        # Header
+        # Header (includes title, main tabs, and user info)
         header_frame = self.create_header()
         main_layout.addWidget(header_frame)
 
-        # Main content area with tabs - only Communication / Settings / Cane Weight shown
-        tab_widget = QTabWidget()
+        # Main content area using QStackedWidget driven by top header tabs
+        self.main_stack = QStackedWidget()
+        self.tab_widget = self.main_stack  # Backwards compatibility reference
 
-        # --- Communication tab ---
+        # --- Communication tab (index 0) ---
         comm_tab = QWidget()
         comm_layout = QVBoxLayout(comm_tab)
+        comm_layout.setContentsMargins(4, 4, 4, 4)
         settings_group = self.create_connection_settings()
         comm_layout.addWidget(settings_group)
         splitter = QSplitter(Qt.Vertical)
@@ -478,23 +645,31 @@ class MainWindow(QWidget):
         splitter.addWidget(send_group)
         splitter.setSizes([400, 200])
         comm_layout.addWidget(splitter)
-        tab_widget.addTab(comm_tab, "Communication")
+        self.main_stack.addWidget(comm_tab)
 
-        # --- Settings tab ---
+        # --- Settings tab (index 1) ---
         settings_tab = self.create_settings_tab()
-        tab_widget.addTab(settings_tab, "Settings")
+        self.main_stack.addWidget(settings_tab)
 
-        # --- Cane Weight tab (its sub-sections are collapsible, see create_cane_form_tab) ---
+        # --- Cane Weight tab (index 2) ---
         cane_form_tab = self.create_cane_form_tab()
-        tab_widget.addTab(cane_form_tab, "Cane Weight")
+        self.main_stack.addWidget(cane_form_tab)
 
-        # --- Cane Inward Slip tab ---
+        # --- Cane Inward Slip tab (index 3) ---
         self.cane_inward_slip_tab = self.create_cane_inward_slip_tab()
-        tab_widget.addTab(self.cane_inward_slip_tab, "Cane Inward Slip")
+        self.main_stack.addWidget(self.cane_inward_slip_tab)
 
-        # --- Other Weight tab ---
+        # --- Other Weight tab (index 4) ---
         self.other_weight_tab = self.create_other_weight_tab()
-        tab_widget.addTab(self.other_weight_tab, "Other Weight")
+        self.main_stack.addWidget(self.other_weight_tab)
+
+        # Connect header tab bar to switch stacked widget bidirectionally
+        self.header_tab_bar.currentChanged.connect(self.main_stack.setCurrentIndex)
+        self.main_stack.currentChanged.connect(self.header_tab_bar.setCurrentIndex)
+
+        # Default to Cane Weight tab (index 2)
+        self.header_tab_bar.setCurrentIndex(2)
+        self.main_stack.setCurrentIndex(2)
 
         # The following forms are built (so their fields/signals still work in the
         # background, e.g. RFID auto-fill) but are hidden from the main interface for now.
@@ -502,7 +677,7 @@ class MainWindow(QWidget):
         self.auto_token_tab = self.create_auto_token_tab()
         self.diesel_sale_tab = self.create_diesel_sale_tab()
 
-        main_layout.addWidget(tab_widget)
+        main_layout.addWidget(self.main_stack)
         self.setLayout(main_layout)
 
         self._setup_cane_weight_shortcuts()
@@ -522,79 +697,110 @@ class MainWindow(QWidget):
         header_frame = QFrame()
         header_frame.setObjectName("headerFrame")
         header_layout = QHBoxLayout(header_frame)
-        # header_layout.setContentsMargins(15, 10, 15, 10)
-        # header_layout.setSpacing(10)
+        header_layout.setContentsMargins(10, 6, 10, 6)
+        header_layout.setSpacing(12)
         
-        # List of image URLs to display side by side
-        image_urls = [
-            "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"  # Example second image (Quantbit logo from previous request)
-        ]
+        # Left side: Provided Kranti Sugar logo (offline local asset / base64 fallback)
+        kranti_logo_label = QLabel()
+        kranti_logo_label.setFixedSize(40, 40)
+        kranti_logo_label.setAlignment(Qt.AlignCenter)
+        kranti_pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        if kranti_pixmap and not kranti_pixmap.isNull():
+            kranti_logo_label.setPixmap(kranti_pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            kranti_logo_label.setStyleSheet("border: none; background: transparent;")
+        else:
+            kranti_logo_label.setText("KS")
+            kranti_logo_label.setStyleSheet(
+                "background-color: #dc2626; color: white; border-radius: 20px; "
+                "font-weight: bold; font-size: 14px; text-align: center;"
+            )
+        header_layout.addWidget(kranti_logo_label, 0, Qt.AlignVCenter)
         
-        # Add multiple images side by side
-        for index, url in enumerate(image_urls):
-            logo_label = QLabel()
-            logo_label.setFixedSize(50, 50)  # Fixed size for each logo
-            logo_pixmap = QPixmap()
-            
-            try:
-                if logo_pixmap.loadFromData(requests.get(url).content):  # Download and load the image
-                    logo_pixmap = logo_pixmap.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    logo_label.setPixmap(logo_pixmap)
-                    logo_label.setStyleSheet("border: none;")  # No border for clean look
-                else:
-                    # Fallback: Set placeholder text if image fails to load
-                    logo_label.setText(f"IMG{index+1}")
-                    logo_label.setStyleSheet(
-                        "background-color: #667eea; color: white; border-radius: 25px; "
-                        "font-weight: bold; font-size: 16px; text-align: center;"
-                    )
-                    logo_label.setAlignment(Qt.AlignCenter)
-            except Exception as e:
-                # Handle network or other errors
-                logo_label.setText(f"IMG{index+1}")
-                logo_label.setStyleSheet(
-                    "background-color: #667eea; color: white; border-radius: 25px; "
-                    "font-weight: bold; font-size: 16px; text-align: center;"
-                )
-                logo_label.setAlignment(Qt.AlignCenter)
-                self.output.append(f"[Header] Failed to load image {url}: {str(e)}")
-            
-            header_layout.addWidget(logo_label)
-        
-        # Title layout
+        # Left side: Title and Subtitle layout
         title_layout = QVBoxLayout()
-        title_label = QLabel("Quantbit Cane Weighbridge System")
+        title_layout.setSpacing(1)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_label = QLabel("Kranti Sugar Cane Weightbridge")
         title_label.setObjectName("titleLabel")
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: Blue; margin: 0;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: 700; color: #0f172a; margin: 0; background: transparent;")
+        
         subtitle_label = QLabel("RS232 Communication Terminal - Professional serial tool")
         subtitle_label.setObjectName("subtitleLabel")
-        subtitle_label.setStyleSheet("font-size: 12px; color: rgba(8, 178, 221, 0.8); margin: 0;")
+        subtitle_label.setStyleSheet("font-size: 11px; font-weight: 500; color: #0284c7; margin: 0; background: transparent;")
+        
         title_layout.addWidget(title_label)
         title_layout.addWidget(subtitle_label)
-        header_layout.addLayout(title_layout, 1)  # Stretch to fill spac
+        header_layout.addLayout(title_layout)
 
-        # Logged-in user name (top-right corner), with a live clock beside it -
-        # every date/time field in this app tracks the live system clock, so
-        # the header shows one too (ticked every second by update_stats(),
-        # same timer that already drives RX/TX/Connected).
+        # Header main navigation tabs (Communication, Settings, Cane Weight, Cane Inward Slip, Other Weight)
+        header_layout.addSpacing(14)
+        self.header_tab_bar = QTabBar()
+        self.header_tab_bar.setObjectName("mainTabBar")
+        self.header_tab_bar.setDrawBase(False)
+        self.header_tab_bar.setExpanding(False)
+        self.header_tab_bar.setCursor(Qt.PointingHandCursor)
+        self.header_tab_bar.addTab("Communication")
+        self.header_tab_bar.addTab("Settings")
+        self.header_tab_bar.addTab("Cane Weight")
+        self.header_tab_bar.addTab("Cane Inward Slip")
+        self.header_tab_bar.addTab("Other Weight")
+        header_layout.addWidget(self.header_tab_bar, 0, Qt.AlignVCenter)
+        header_layout.addStretch(1)
+
+        # Existing logo on the right side immediately to the left of the user/admin info section
+        quantbit_logo_label = QLabel()
+        quantbit_logo_label.setFixedSize(40, 40)
+        quantbit_logo_label.setAlignment(Qt.AlignCenter)
+        qb_remote_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
+        qb_pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=qb_remote_url)
+        if qb_pixmap and not qb_pixmap.isNull():
+            quantbit_logo_label.setPixmap(qb_pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            quantbit_logo_label.setStyleSheet("border: none; background: transparent;")
+        else:
+            quantbit_logo_label.setText("QT")
+            quantbit_logo_label.setStyleSheet(
+                "background-color: #2563eb; color: white; border-radius: 20px; "
+                "font-weight: bold; font-size: 14px; text-align: center;"
+            )
+
+        # Logged-in user name (top-right corner), with a live clock beside it
         user_container = QVBoxLayout()
+        user_container.setSpacing(1)
+        user_container.setContentsMargins(0, 0, 0, 0)
+        
         user_top_row = QHBoxLayout()
+        user_top_row.setSpacing(6)
+        user_top_row.setContentsMargins(0, 0, 0, 0)
+        
         self.logged_in_user_label = QLabel(f"👤 {self.primary_frappe_username}")
         self.logged_in_user_label.setObjectName("loggedInUserLabel")
-        self.logged_in_user_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #2c3e50;")
+        self.logged_in_user_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #1e293b; background: transparent;")
         self.logged_in_user_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
         self.header_clock_label = QLabel(datetime.now().strftime("%H:%M:%S"))
         self.header_clock_label.setObjectName("headerClockLabel")
-        self.header_clock_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #3498db;")
+        self.header_clock_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #2563eb; background: transparent;")
         self.header_clock_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
         user_top_row.addWidget(self.logged_in_user_label)
         user_top_row.addWidget(self.header_clock_label)
+        
         role_label = QLabel(self.primary_frappe_site_url)
-        role_label.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        role_label.setObjectName("roleLabel")
+        role_label.setStyleSheet("font-size: 10px; color: #64748b; background: transparent;")
         role_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        
         user_container.addLayout(user_top_row)
         user_container.addWidget(role_label)
-        header_layout.addLayout(user_container)
+
+        # Right side section: existing logo immediately to the left of the user info
+        right_section = QHBoxLayout()
+        right_section.setSpacing(8)
+        right_section.setContentsMargins(0, 0, 0, 0)
+        right_section.addWidget(quantbit_logo_label, 0, Qt.AlignVCenter)
+        right_section.addLayout(user_container)
+        header_layout.addLayout(right_section)
 
         return header_frame
     
@@ -605,8 +811,10 @@ class MainWindow(QWidget):
         
         layout.addWidget(QLabel("Port:"), 0, 0)
         self.port_combo = QComboBox()
-        self.port_combo.setMinimumWidth(120)
+        self.port_combo.setMinimumWidth(130)
+        self.port_combo.setEditable(True)
         self.refresh_ports()
+        self.port_combo.currentTextChanged.connect(self._on_com_port_changed)
         layout.addWidget(self.port_combo, 0, 1)
         
         self.refresh_btn = QPushButton("🔄 Refresh")
@@ -845,6 +1053,17 @@ class MainWindow(QWidget):
         content = QWidget()
         outer_layout.addWidget(content)
         group.toggled.connect(content.setVisible)
+        return group, content
+
+    def _make_section_groupbox(self, title):
+        """Build a clean, non-collapsible QGroupBox card for visual sections."""
+        group = QGroupBox(title)
+        group.setObjectName("sectionGroupBox")
+        group.setCheckable(False)
+        outer_layout = QVBoxLayout(group)
+        outer_layout.setContentsMargins(10, 12, 10, 10)
+        content = QWidget()
+        outer_layout.addWidget(content)
         return group, content
 
     # ------------------------------------------------------------------
@@ -1094,7 +1313,8 @@ class MainWindow(QWidget):
             "survey_number", "is_kisan_card", "village", "transporter_contract",
             "transporter", "harvester_contract", "harvester", "transporter_name",
             "transporter_vehicle_type", "transporter_gang_type", "vehicle_no",
-            "trolly_1", "trolly_2", "ht_driver", "harvester_name",
+            "trolly_1", "trolly_2", "trolly_trailer_1", "trolly_trailer_2",
+            "cart_no_1", "cart_no_2", "ht_driver", "harvester_name",
             "harvester_vehicle_type", "harvester_gang_type", "cane_deduction_type",
             "deduction", "water_share", "rope_placement",
             "auto_token_no", "token_user", "token_no",
@@ -1296,7 +1516,7 @@ class MainWindow(QWidget):
             return gb
 
         # --- Group box 1: Basic Information -----------------------------------
-        basic_info_group, basic_info_content = self._make_collapsible_groupbox("Basic Information")
+        basic_info_group, basic_info_content = self._make_section_groupbox("Basic Information")
         basic_info_outer = QVBoxLayout(basic_info_content)
 
         basic_fields_widget = QWidget()
@@ -1316,7 +1536,7 @@ class MainWindow(QWidget):
         container_layout.addWidget(basic_info_group)
 
         # --- Group box 2: Details (HT Details, then Deduction Details) -------
-        details_group, details_content = self._make_collapsible_groupbox("Details")
+        details_group, details_content = self._make_section_groupbox("Details")
         details_grid = QGridLayout(details_content)
         details_grid.setSpacing(6)
         details_items = []
@@ -1513,6 +1733,18 @@ class MainWindow(QWidget):
         trolly_2_edit = QLineEdit()
         self.form_fields["trolly_2"] = trolly_2_edit
 
+        trolly_trailer_1_edit = QLineEdit()
+        self.form_fields["trolly_trailer_1"] = trolly_trailer_1_edit
+
+        trolly_trailer_2_edit = QLineEdit()
+        self.form_fields["trolly_trailer_2"] = trolly_trailer_2_edit
+
+        cart_no_1_edit = QLineEdit()
+        self.form_fields["cart_no_1"] = cart_no_1_edit
+
+        cart_no_2_edit = QLineEdit()
+        self.form_fields["cart_no_2"] = cart_no_2_edit
+
         rope_placement_edit = QLineEdit()
         self.form_fields["rope_placement"] = rope_placement_edit
 
@@ -1525,6 +1757,10 @@ class MainWindow(QWidget):
             ("Harvester Gang Type", harvester_gang_type_edit),
             ("Trolly 1", trolly_1_edit),
             ("Trolly 2", trolly_2_edit),
+            ("Trolly Trailer 1", trolly_trailer_1_edit),
+            ("Trolly Trailer 2", trolly_trailer_2_edit),
+            ("Cart No 1", cart_no_1_edit),
+            ("Cart No 2", cart_no_2_edit),
             ("Rope Placement", rope_placement_edit),
         ]
 
@@ -1563,40 +1799,29 @@ class MainWindow(QWidget):
         ]
 
     def create_field_slip_tab(self):
-        """Compact 'Field Slip' quick-entry view (Cane Weight tab 1 of 2).
+        """Clean, modern 'Field Slip' quick-entry view (Cane Weight tab 1 of 2).
 
-        Every field listed in the spec lives ONLY here - the Detailed Entry
-        tab's own create_*_tab() methods (tab 2) have had these same fields
-        removed from them, so self.form_fields keeps exactly one widget per
-        field name (registered here instead of there) and every existing
-        populate/collect/save code path (which looks fields up by name) keeps
-        working untouched.
-
-        Laid out 5 label+field slots per row (10 grid columns) with no inner
-        scroll area, so the slip - weight section and action buttons included
-        - fits on screen without scrolling, per spec.
+        Visually organized into 5 clear sections:
+        1. Basic Information (Trip Sheet lookup, fuel allocation, session & timing)
+        2. Slip Details (Cane registration, variety, vehicle info, slip boy, distance)
+        3. Details (Entity & regional names with Farmer & Rope Placement highlighted)
+        4. Weight (Gross & Tare capture rows + 6 calculated result weights)
+        5. Action buttons (Submit, Save, Clear, View Submitted Records, Print)
         """
         field_slip_tab = QWidget()
-        layout = QVBoxLayout(field_slip_tab)
-        layout.setSpacing(8)
+        wrapper_layout = QVBoxLayout(field_slip_tab)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(0)
 
-        SLOTS_PER_ROW = 5
-        N_COLS = SLOTS_PER_ROW * 2
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setObjectName("fieldSlipScrollArea")
 
-        def add_row(grid, row, items):
-            """items: list of (label_or_None, widget). label=None makes the
-            widget (e.g. a button) span the full label+field slot width."""
-            for slot, (label, widget) in enumerate(items):
-                col = slot * 2
-                if label is None:
-                    grid.addWidget(widget, row, col, 1, 2)
-                else:
-                    grid.addWidget(QLabel(label), row, col)
-                    grid.addWidget(widget, row, col + 1)
-
-        def stretch_field_columns(grid, n_cols=None):
-            for c in range(1, n_cols if n_cols is not None else N_COLS, 2):
-                grid.setColumnStretch(c, 1)
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 8, 10, 8)
+        content_layout.setSpacing(10)
 
         def field(field_key, read_only=False):
             w = QLineEdit()
@@ -1609,8 +1834,7 @@ class MainWindow(QWidget):
             w = QDateEdit()
             w.setDisplayFormat("yyyy-MM-dd")
             w.setDate(datetime.now().date())
-            w.setEnabled(False)  # live: locked to the system clock (or the "Edit
-            # Posting Date & Time" checkbox in Basic Information for posting_date)
+            w.setEnabled(False)
             self.form_fields[field_key] = w
             return w
 
@@ -1618,7 +1842,7 @@ class MainWindow(QWidget):
             w = QTimeEdit()
             w.setDisplayFormat("HH:mm:ss")
             w.setTime(datetime.now().time())
-            w.setEnabled(False)  # live: see date_field() above
+            w.setEnabled(False)
             self.form_fields[field_key] = w
             return w
 
@@ -1644,15 +1868,88 @@ class MainWindow(QWidget):
             self.form_fields[field_key] = w
             return w
 
-        # --- Basic Info (above Trip Sheet No.) ---------------------------------
-        # Posting Date and Posting Time moved here (into the same row as
-        # Season/Shift) from the Slip Details group box below. Season Day
-        # moved out to the Detailed Entry tab (see _fields_basic_info). Branch
-        # moved out to the Detailed Entry tab too (see
-        # _fields_trip_sheet_registration). Token No/Date/Time moved in from
-        # the Slip Details group box below, all in this same row.
-        basic_info_fields = [
-            ("Season", combo_field("season", ["2026-2027", "2027-2028" , "2028-2029" , "2029-2030"], "2026-2027")),
+        # ======================================================================
+        # SECTION 1: Basic Information
+        # ======================================================================
+        basic_info_group = QGroupBox("Basic Information")
+        basic_info_group.setObjectName("basicInfoGroup")
+        basic_info_layout = QVBoxLayout(basic_info_group)
+        basic_info_layout.setContentsMargins(12, 12, 12, 12)
+        basic_info_layout.setSpacing(10)
+
+        # Lookup & Fuel Toolbar
+        lookup_widget = QWidget()
+        lookup_layout = QHBoxLayout(lookup_widget)
+        lookup_layout.setContentsMargins(0, 0, 0, 0)
+        lookup_layout.setSpacing(10)
+
+        ts_lbl = QLabel("Trip Sheet No.:")
+        ts_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #0f172a;")
+        
+        trip_sheet_edit = QLineEdit()
+        trip_sheet_edit.setPlaceholderText("e.g. 134")
+        trip_sheet_edit.setStyleSheet(
+            "font-size: 16px; font-weight: bold; color: #dc2626; "
+            "border: 1.5px solid #2563eb; border-radius: 6px; padding: 4px 8px; max-width: 130px;"
+        )
+        self.form_fields["trip_sheet"] = trip_sheet_edit
+        trip_sheet_edit.returnPressed.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
+
+        get_data_btn = QPushButton("🔍 Get Data")
+        get_data_btn.setStyleSheet(
+            "QPushButton { background-color: #2563eb; color: white; font-weight: bold; "
+            "font-size: 12px; padding: 6px 16px; border-radius: 6px; min-height: 24px; } "
+            "QPushButton:hover { background-color: #1d4ed8; } "
+            "QPushButton:pressed { background-color: #1e40af; }"
+        )
+        get_data_btn.clicked.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
+
+        heavy_vehicle_check = QCheckBox("Heavy Vehicle")
+        self.form_fields["heavy_vehicle"] = heavy_vehicle_check
+        heavy_vehicle_check.stateChanged.connect(self._recalculate_diesel_allocation)
+
+        extra_fuel_allocation_edit = field("extra_fuel_allocation")
+        extra_fuel_allocation_edit.setValidator(QDoubleValidator(0.00, 99999.00, 2))
+        extra_fuel_allocation_edit.setMaximumWidth(90)
+        extra_fuel_allocation_edit.textChanged.connect(self._recalculate_diesel_allocation)
+
+        diesel_allocation_edit = field("diesel_allocation", read_only=True)
+        diesel_allocation_edit.setMaximumWidth(90)
+
+        do_not_allow_fuel_check = QCheckBox("Do Not Allow Fuel")
+        self.form_fields["do_not_allow_fuel"] = do_not_allow_fuel_check
+
+        lookup_layout.addWidget(ts_lbl)
+        lookup_layout.addWidget(trip_sheet_edit)
+        lookup_layout.addWidget(get_data_btn)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color: #cbd5e1; margin: 0 4px;")
+        lookup_layout.addWidget(sep)
+
+        lookup_layout.addWidget(heavy_vehicle_check)
+        
+        extra_fuel_lbl = QLabel("Extra Fuel:")
+        extra_fuel_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        lookup_layout.addWidget(extra_fuel_lbl)
+        lookup_layout.addWidget(extra_fuel_allocation_edit)
+
+        diesel_lbl = QLabel("Diesel Alloc.:")
+        diesel_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        lookup_layout.addWidget(diesel_lbl)
+        lookup_layout.addWidget(diesel_allocation_edit)
+
+        lookup_layout.addWidget(do_not_allow_fuel_check)
+        lookup_layout.addStretch(1)
+        basic_info_layout.addWidget(lookup_widget)
+
+        # Session & Timing Fields (4 columns x 2 rows)
+        session_grid = QGridLayout()
+        session_grid.setHorizontalSpacing(14)
+        session_grid.setVerticalSpacing(8)
+        session_fields = [
+            ("Season", combo_field("season", ["2026-2027", "2027-2028", "2028-2029", "2029-2030"], "2026-2027")),
             ("Shift", combo_field("shift", ["1st", "2nd", "3rd"], "1st")),
             ("Posting Date", date_field("posting_date")),
             ("Posting Time", time_field("posting_time")),
@@ -1661,71 +1958,30 @@ class MainWindow(QWidget):
             ("Token Date", date_field("token_date")),
             ("Token Time", time_field("token_time")),
         ]
-        basic_info_group, basic_info_content = self._make_collapsible_groupbox("Basic Info")
-        basic_info_grid = QGridLayout(basic_info_content)
-        add_row(basic_info_grid, 0, basic_info_fields)
-        stretch_field_columns(basic_info_grid, n_cols=len(basic_info_fields) * 2)
+        for idx, (label, widget) in enumerate(session_fields):
+            row = idx // 4
+            col = (idx % 4) * 2
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-weight: 600; color: #475569;")
+            session_grid.addWidget(lbl, row, col)
+            session_grid.addWidget(widget, row, col + 1)
+            session_grid.setColumnStretch(col + 1, 1)
 
-        # --- Row 1: Trip Sheet No. + Get Data ---------------------------------
-        top_row_widget = QWidget()
-        top_row_layout = QHBoxLayout(top_row_widget)
-        top_row_layout.setContentsMargins(0, 0, 0, 0)
+        basic_info_layout.addLayout(session_grid)
+        content_layout.addWidget(basic_info_group)
 
-        trip_sheet_edit = QLineEdit()
-        trip_sheet_edit.setPlaceholderText("e.g. 134")
-        trip_sheet_edit.setStyleSheet("font-size: 22px; font-weight: bold; color: red;")
-        self.form_fields["trip_sheet"] = trip_sheet_edit
-        trip_sheet_edit.returnPressed.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
+        # ======================================================================
+        # SECTION 2: Slip Details
+        # ======================================================================
+        slip_details_group = QGroupBox("Slip Details")
+        slip_details_group.setObjectName("slipDetailsGroup")
+        slip_details_layout = QVBoxLayout(slip_details_group)
+        slip_details_layout.setContentsMargins(12, 12, 12, 12)
 
-        get_data_btn = QPushButton("Get Data")
-        get_data_btn.clicked.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
-
-        # Heavy Vehicle checkbox, Extra Fuel Allocation and Diesel Allocation
-        # moved here (Trip Sheet row) from the Slip Details group box below.
-        # Heavy Vehicle Fuel Allowance moved out to the Detailed Entry tab
-        # instead (see _fields_ht_details) - the operator toggles this
-        # checkbox to decide whether that allowance is added into Diesel
-        # Allocation or not (see _recalculate_diesel_allocation).
-        heavy_vehicle_check = QCheckBox()
-        self.form_fields["heavy_vehicle"] = heavy_vehicle_check
-        heavy_vehicle_check.stateChanged.connect(self._recalculate_diesel_allocation)
-
-        extra_fuel_allocation_edit = field("extra_fuel_allocation")
-        extra_fuel_allocation_edit.setValidator(QDoubleValidator(0.00, 99999.00, 2))
-        extra_fuel_allocation_edit.textChanged.connect(self._recalculate_diesel_allocation)
-        diesel_allocation_edit = field("diesel_allocation", read_only=True)
-
-        # Saved to the Cane Weight document (a real "Do Not Allow Fuel" Check
-        # field there) but not wired into _recalculate_diesel_allocation - it
-        # doesn't change what's on screen or how Diesel Allocation is
-        # calculated at all. It's only read by print_cane_weight_form(), which
-        # shows Diesel Allocation as 0 on the printed slip when this is
-        # checked, regardless of the actual calculated/saved value.
-        do_not_allow_fuel_check = QCheckBox()
-        self.form_fields["do_not_allow_fuel"] = do_not_allow_fuel_check
-
-        top_row_layout.addWidget(QLabel("Trip Sheet No."))
-        top_row_layout.addWidget(trip_sheet_edit, 1)
-        top_row_layout.addWidget(get_data_btn)
-        top_row_layout.addWidget(QLabel("Heavy Vehicle"))
-        top_row_layout.addWidget(heavy_vehicle_check)
-        top_row_layout.addWidget(QLabel("Extra Fuel Allocation"))
-        top_row_layout.addWidget(extra_fuel_allocation_edit)
-        top_row_layout.addWidget(QLabel("Diesel Allocation"))
-        top_row_layout.addWidget(diesel_allocation_edit)
-        top_row_layout.addWidget(QLabel("Do Not Allow Fuel"))
-        top_row_layout.addWidget(do_not_allow_fuel_check)
-        top_row_layout.addStretch(3)
-
-        # --- Rows 2+: compact fields, 6 per row --------------------------------
-        # Auto Token No., Crop Type and Survey Number live on the Detailed Entry
-        # tab instead (see _fields_token_details / _fields_trip_sheet_registration).
-        # Farmer, Transporter Contract and Harvester Contract moved to the
-        # Detailed Entry tab (same helper). Posting Date/Posting Time and
-        # Token No/Date/Time moved up to the Basic Info group box. All
-        # "* LL Name" fields moved out into their own "Details" group box
-        # below this one (see details_fields further down).
-        compact_fields = [
+        slip_grid = QGridLayout()
+        slip_grid.setHorizontalSpacing(14)
+        slip_grid.setVerticalSpacing(8)
+        slip_fields = [
             ("Cane Registration", field("cane_registration")),
             ("Crop Variety", field("crop_variety")),
             ("Vehicle Type", field("transporter_vehicle_type")),
@@ -1733,21 +1989,37 @@ class MainWindow(QWidget):
             ("Distance", spin_field("distance", 0, 9999)),
             ("Vehicle No", field("vehicle_no")),
         ]
+        for idx, (label, widget) in enumerate(slip_fields):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-weight: 600; color: #475569;")
+            slip_grid.addWidget(lbl, 0, idx * 2)
+            slip_grid.addWidget(widget, 0, idx * 2 + 1)
+            slip_grid.setColumnStretch(idx * 2 + 1, 1)
 
-        fields_group, fields_content = self._make_collapsible_groupbox("Slip Details")
-        SLIP_DETAILS_SLOTS_PER_ROW = 6
-        fields_grid = QGridLayout(fields_content)
-        for i in range(0, len(compact_fields), SLIP_DETAILS_SLOTS_PER_ROW):
-            add_row(fields_grid, i // SLIP_DETAILS_SLOTS_PER_ROW, compact_fields[i:i + SLIP_DETAILS_SLOTS_PER_ROW])
+        slip_details_layout.addLayout(slip_grid)
+        content_layout.addWidget(slip_details_group)
 
-        stretch_field_columns(fields_grid, n_cols=SLIP_DETAILS_SLOTS_PER_ROW * 2)
+        # ======================================================================
+        # SECTION 3: Details
+        # ======================================================================
+        details_group = QGroupBox("Details")
+        details_group.setObjectName("detailsGroup")
+        details_layout = QVBoxLayout(details_group)
+        details_layout.setContentsMargins(12, 12, 12, 12)
 
-        # --- Details group box: every field that used to live in
-        # Slip Details, 3 per row (LL Name removed from label) ------------
-        rope_placement_ll_name_edit = field("rope_placement_ll_name", read_only=True)
-        rope_placement_ll_name_edit.setMinimumWidth(320)  # holds noticeably longer text than the other fields
+        details_grid = QGridLayout()
+        details_grid.setHorizontalSpacing(16)
+        details_grid.setVerticalSpacing(8)
 
         farmer_ll_name_edit = field("farmer_ll_name", read_only=True)
+        rope_placement_ll_name_edit = field("rope_placement_ll_name", read_only=True)
+
+        highlight_style = (
+            "font-size: 13px; font-weight: bold; color: #dc2626; "
+            "background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 4px 6px;"
+        )
+        farmer_ll_name_edit.setStyleSheet(highlight_style)
+        rope_placement_ll_name_edit.setStyleSheet(highlight_style)
 
         details_fields = [
             ("Route", field("route_ll_name", read_only=True)),
@@ -1760,164 +2032,225 @@ class MainWindow(QWidget):
             ("HT Driver", field("ht_driver_ll_name", read_only=True)),
             ("Rope Placement", rope_placement_ll_name_edit),
         ]
+        for idx, (label, widget) in enumerate(details_fields):
+            row = idx // 3
+            col = (idx % 3) * 2
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-weight: 600; color: #475569;")
+            details_grid.addWidget(lbl, row, col)
+            details_grid.addWidget(widget, row, col + 1)
+            details_grid.setColumnStretch(col + 1, 1)
 
-        details_group, details_content = self._make_collapsible_groupbox("Details")
-        # Bigger value font for every field in this box; Rope Placement and
-        # Farmer LL Name additionally get a red value, per spec.
-        details_group.setStyleSheet("QGroupBox QLineEdit { font-size: 15px; }")
-        red_value_style = "font-size: 15px; color: red;"
-        rope_placement_ll_name_edit.setStyleSheet(red_value_style)
-        farmer_ll_name_edit.setStyleSheet(red_value_style)
-        DETAILS_SLOTS_PER_ROW = 3
-        details_field_grid = QGridLayout(details_content)
-        for i in range(0, len(details_fields), DETAILS_SLOTS_PER_ROW):
-            add_row(details_field_grid, i // DETAILS_SLOTS_PER_ROW, details_fields[i:i + DETAILS_SLOTS_PER_ROW])
-        stretch_field_columns(details_field_grid, n_cols=DETAILS_SLOTS_PER_ROW * 2)
+        details_layout.addLayout(details_grid)
+        content_layout.addWidget(details_group)
 
-        # --- Weight section (kept at the bottom, per spec) ---------------------
-        # Row 1: Gross Weight. Row 2: Tare Weight. Row 3+: remaining weights,
-        # 5 per row.
-        get_gross_btn = QPushButton("Get Gross Weight")
+        # ======================================================================
+        # SECTION 4: Weight
+        # ======================================================================
+        weight_group = QGroupBox("Weight")
+        weight_group.setObjectName("weightGroup")
+        weight_layout = QVBoxLayout(weight_group)
+        weight_layout.setContentsMargins(12, 12, 12, 12)
+        weight_layout.setSpacing(10)
+
+        get_gross_btn = QPushButton("⚖️ Get Gross Weight")
+        get_gross_btn.setStyleSheet(
+            "QPushButton { background-color: #2563eb; color: white; font-weight: bold; "
+            "font-size: 13px; height: 34px; border-radius: 6px; padding: 0 16px; } "
+            "QPushButton:hover { background-color: #1d4ed8; } "
+            "QPushButton:pressed { background-color: #1e40af; }"
+        )
         get_gross_btn.clicked.connect(self.get_gross_weight)
-        get_tare_btn = QPushButton("Get Tare Weight")
+
+        get_tare_btn = QPushButton("⚖️ Get Tare Weight")
+        get_tare_btn.setStyleSheet(
+            "QPushButton { background-color: #0284c7; color: white; font-weight: bold; "
+            "font-size: 13px; height: 34px; border-radius: 6px; padding: 0 16px; } "
+            "QPushButton:hover { background-color: #0369a1; } "
+            "QPushButton:pressed { background-color: #075985; }"
+        )
         get_tare_btn.clicked.connect(self.get_tare_weight)
 
-        # Every field in this group box is Read Only, per spec.
-        # Gross/Tare Weight get a large, bold, red font so the operator can
-        # read the captured value at a glance.
-        weight_value_style = "font-size: 28px; font-weight: bold; color: red;"
+        weight_display_style = (
+            "font-size: 22px; font-weight: bold; color: #dc2626; "
+            "background-color: #fef2f2; border: 1.5px solid #fca5a5; "
+            "border-radius: 6px; padding: 2px 8px; min-height: 28px;"
+        )
 
         gross_weight_edit = field("gross_weight")
         gross_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
-        gross_weight_edit.setStyleSheet(weight_value_style)
-        # Stamp the actual capture moment for manual entry too, same as
-        # get_gross_weight() does for a weighbridge-captured reading.
+        gross_weight_edit.setStyleSheet(weight_display_style)
         gross_weight_edit.editingFinished.connect(self._on_gross_weight_manually_edited)
+
         tare_weight_edit = field("tare_weight")
         tare_weight_edit.setValidator(QDoubleValidator(0.000, 9999.999, 3))
-        tare_weight_edit.setStyleSheet(weight_value_style)
+        tare_weight_edit.setStyleSheet(weight_display_style)
         tare_weight_edit.editingFinished.connect(self._on_tare_weight_manually_edited)
 
         net_weight_edit = field("net_weight", read_only=True)
-        net_weight_edit.setStyleSheet("color: red;")
+        net_weight_edit.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #dc2626; "
+            "background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; padding: 4px;"
+        )
 
-        # Bridge User fields default to the logged-in user, same as Detailed Entry
-        # used to (still kept in sync by _default_weight_bridge_users()).
         gross_weight_bridge_user_edit = field("gross_weight_bridge_user", read_only=True)
         gross_weight_bridge_user_edit.setText(self.primary_frappe_username or "")
         tare_weight_bridge_user_edit = field("tare_weight_bridge_user", read_only=True)
         tare_weight_bridge_user_edit.setText(self.primary_frappe_username or "")
 
-        weight_rows = [
-            [
-                ("GW Bridge", field("gross_weight_bridge", read_only=True)),
-                ("Gross Weight", gross_weight_edit),
-                (None, get_gross_btn),
-                ("GW User", gross_weight_bridge_user_edit),
-                ("GW Timestamp", datetime_field("gross_weight_timestamp", read_only=True)),
-            ],
-            [
-                ("TWBridge", field("tare_weight_bridge", read_only=True)),
-                ("Tare Weight", tare_weight_edit),
-                (None, get_tare_btn),
-                ("TW User", tare_weight_bridge_user_edit),
-                ("TW Timestamp", datetime_field("tare_weight_timestamp", read_only=True)),
-            ],
-            [
-                ("Cane Weight", field("cane_weight", read_only=True)),
-                ("Net Weight", net_weight_edit),
-                ("Binding Weight", field("binding_weight", read_only=True)),
-                ("Farmer Weight", field("farmer_weight", read_only=True)),
-                ("Transporter Weight", field("transporter_weight", read_only=True)),
-            ],
-            [
-                ("Harvester Weight", field("harvester_weight", read_only=True)),
-            ],
+        # Row 1: Gross Weight Capture
+        gw_row = QHBoxLayout()
+        gw_row.setSpacing(10)
+        
+        gw_bridge_lbl = QLabel("GW Bridge:")
+        gw_bridge_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        gw_row.addWidget(gw_bridge_lbl)
+        gw_bridge_edit = field("gross_weight_bridge", read_only=True)
+        gw_bridge_edit.setMaximumWidth(100)
+        gw_row.addWidget(gw_bridge_edit)
+
+        gw_val_lbl = QLabel("Gross Weight:")
+        gw_val_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #1e293b;")
+        gw_row.addWidget(gw_val_lbl)
+        gw_row.addWidget(gross_weight_edit, 2)
+        gw_row.addWidget(get_gross_btn, 1)
+
+        gw_user_lbl = QLabel("GW User:")
+        gw_user_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        gw_row.addWidget(gw_user_lbl)
+        gw_row.addWidget(gross_weight_bridge_user_edit, 1)
+
+        gw_time_lbl = QLabel("GW Timestamp:")
+        gw_time_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        gw_row.addWidget(gw_time_lbl)
+        gw_row.addWidget(datetime_field("gross_weight_timestamp", read_only=True), 1)
+
+        # Row 2: Tare Weight Capture
+        tw_row = QHBoxLayout()
+        tw_row.setSpacing(10)
+
+        tw_bridge_lbl = QLabel("TW Bridge:")
+        tw_bridge_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        tw_row.addWidget(tw_bridge_lbl)
+        tw_bridge_edit = field("tare_weight_bridge", read_only=True)
+        tw_bridge_edit.setMaximumWidth(100)
+        tw_row.addWidget(tw_bridge_edit)
+
+        tw_val_lbl = QLabel("Tare Weight:")
+        tw_val_lbl.setStyleSheet("font-weight: 700; font-size: 13px; color: #1e293b;")
+        tw_row.addWidget(tw_val_lbl)
+        tw_row.addWidget(tare_weight_edit, 2)
+        tw_row.addWidget(get_tare_btn, 1)
+
+        tw_user_lbl = QLabel("TW User:")
+        tw_user_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        tw_row.addWidget(tw_user_lbl)
+        tw_row.addWidget(tare_weight_bridge_user_edit, 1)
+
+        tw_time_lbl = QLabel("TW Timestamp:")
+        tw_time_lbl.setStyleSheet("font-weight: 600; color: #475569;")
+        tw_row.addWidget(tw_time_lbl)
+        tw_row.addWidget(datetime_field("tare_weight_timestamp", read_only=True), 1)
+
+        # Row 3: 6 Result Weights in a balanced grid
+        calc_grid = QGridLayout()
+        calc_grid.setHorizontalSpacing(10)
+        calc_grid.setVerticalSpacing(6)
+        calc_weights = [
+            ("Cane Weight", field("cane_weight", read_only=True)),
+            ("Binding Weight", field("binding_weight", read_only=True)),
+            ("Net Weight", net_weight_edit),
+            ("Farmer Weight", field("farmer_weight", read_only=True)),
+            ("Transporter Weight", field("transporter_weight", read_only=True)),
+            ("Harvester Weight", field("harvester_weight", read_only=True)),
         ]
+        for col_idx, (label, widget) in enumerate(calc_weights):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-weight: 600; color: #475569;")
+            calc_grid.addWidget(lbl, 0, col_idx * 2)
+            calc_grid.addWidget(widget, 0, col_idx * 2 + 1)
+            calc_grid.setColumnStretch(col_idx * 2 + 1, 1)
 
-        weight_group, weight_content = self._make_collapsible_groupbox("Weight")
-        weight_group.setStyleSheet(
-            "QGroupBox { font-size: 17px; font-weight: bold; } "
-            "QGroupBox QLabel { font-size: 15px; font-weight: 600; color: #2c3e50; } "
-            "QGroupBox QLineEdit, QGroupBox QDateTimeEdit { "
-            "  font-size: 16px; padding: 4px 6px; min-height: 26px; "
-            "  background-color: #ffffff; border: 1px solid #b8c2cc; border-radius: 3px; "
-            "} "
-            "QGroupBox QLineEdit:read-only, QGroupBox QDateTimeEdit:read-only { "
-            "  background-color: #f7f9fa; color: #1a1a1a; "
-            "}"
+        weight_layout.addLayout(gw_row)
+        weight_layout.addLayout(tw_row)
+
+        div = QFrame()
+        div.setFrameShape(QFrame.HLine)
+        div.setStyleSheet("color: #e2e8f0; margin: 4px 0;")
+        weight_layout.addWidget(div)
+
+        weight_layout.addLayout(calc_grid)
+        content_layout.addWidget(weight_group)
+
+        # ======================================================================
+        # SECTION 5: Action Buttons
+        # ======================================================================
+        actions_card = QFrame()
+        actions_card.setObjectName("actionsCard")
+        actions_card.setStyleSheet(
+            "#actionsCard { background-color: #ffffff; border: 1px solid #e2e8f0; "
+            "border-radius: 8px; padding: 4px; }"
         )
-        weight_grid = QGridLayout(weight_content)
-        weight_grid.setHorizontalSpacing(14)
-        weight_grid.setVerticalSpacing(10)
-        for row, items in enumerate(weight_rows):
-            add_row(weight_grid, row, items)
-        stretch_field_columns(weight_grid)
+        actions_layout = QHBoxLayout(actions_card)
+        actions_layout.setContentsMargins(10, 8, 10, 8)
+        actions_layout.setSpacing(12)
+        actions_layout.addStretch(1)
 
-        # --- Form actions (moved here from Detailed Entry to keep this the one
-        # compact, self-sufficient workflow tab) ---------------------------------
-        actions_layout = QHBoxLayout()
-        actions_layout.addStretch()
-
-        self.cane_weight_submit_btn = QPushButton("Submit Form")
+        self.cane_weight_submit_btn = QPushButton("🚀 Submit Form")
         self.cane_weight_submit_btn.setObjectName("submitBtn")
-        # submit_form() no longer clears the form - the operator uses the
-        # separate Clear Form button for that (see _send_cane_weight_payload's
-        # clear_after=False).
         self.cane_weight_submit_btn.clicked.connect(self.submit_form)
-        self.cane_weight_submit_btn.setMinimumHeight(40)
-        self.cane_weight_submit_btn.setMinimumWidth(120)
+        self.cane_weight_submit_btn.setMinimumHeight(38)
+        self.cane_weight_submit_btn.setMinimumWidth(130)
         actions_layout.addWidget(self.cane_weight_submit_btn)
 
-        self.cane_weight_save_btn = QPushButton("Save Form")
+        self.cane_weight_save_btn = QPushButton("💾 Save Form")
         self.cane_weight_save_btn.setObjectName("saveBtn")
-        # Same as Submit above - save_form() does not clear the form either.
         self.cane_weight_save_btn.clicked.connect(self.save_form)
-        self.cane_weight_save_btn.setMinimumHeight(40)
-        self.cane_weight_save_btn.setMinimumWidth(120)
+        self.cane_weight_save_btn.setMinimumHeight(38)
+        self.cane_weight_save_btn.setMinimumWidth(130)
         actions_layout.addWidget(self.cane_weight_save_btn)
 
-        self.cane_weight_clear_btn = QPushButton("Clear Form")
+        self.cane_weight_clear_btn = QPushButton("🔄 Clear Form")
         self.cane_weight_clear_btn.setObjectName("clearBtn")
         self.cane_weight_clear_btn.clicked.connect(self.clear_form)
-        self.cane_weight_clear_btn.setMinimumHeight(40)
-        self.cane_weight_clear_btn.setMinimumWidth(120)
+        self.cane_weight_clear_btn.setMinimumHeight(38)
+        self.cane_weight_clear_btn.setMinimumWidth(130)
         actions_layout.addWidget(self.cane_weight_clear_btn)
 
-        view_submitted_btn = QPushButton("View Submitted Records")
+        view_submitted_btn = QPushButton("📋 View Submitted Records")
         view_submitted_btn.setObjectName("viewBtn")
         view_submitted_btn.clicked.connect(self.view_submitted_cane_weight_records)
-        view_submitted_btn.setMinimumHeight(40)
-        view_submitted_btn.setMinimumWidth(160)
+        view_submitted_btn.setMinimumHeight(38)
+        view_submitted_btn.setMinimumWidth(180)
         actions_layout.addWidget(view_submitted_btn)
 
-        self.cane_weight_print_btn = QPushButton("Print")
-        self.cane_weight_print_btn.setObjectName("printBtn")
-        self.cane_weight_print_btn.setStyleSheet(
-            "QPushButton { background-color: #28A745; color: white; font-weight: bold; "
-            "border: none; border-radius: 4px; } "
-            "QPushButton:hover { background-color: #218838; } "
-            "QPushButton:pressed { background-color: #1E7E34; } "
-            "QPushButton:disabled { background-color: #94D3A2; }"
+        see_slip_details_btn = QPushButton("📑 See Slip Details")
+        see_slip_details_btn.setObjectName("seeSlipDetailsBtn")
+        see_slip_details_btn.setStyleSheet(
+            "QPushButton { background-color: #0891b2; color: white; font-weight: bold; "
+            "border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; } "
+            "QPushButton:hover { background-color: #0e7490; } "
+            "QPushButton:pressed { background-color: #155e75; }"
         )
+        see_slip_details_btn.clicked.connect(self.open_slip_details_report)
+        see_slip_details_btn.setMinimumHeight(38)
+        see_slip_details_btn.setMinimumWidth(150)
+        actions_layout.addWidget(see_slip_details_btn)
+
+        self.cane_weight_print_btn = QPushButton("🖨️ Print")
+        self.cane_weight_print_btn.setObjectName("printBtn")
         self.cane_weight_print_btn.clicked.connect(self.print_cane_weight_form)
-        self.cane_weight_print_btn.setMinimumHeight(40)
+        self.cane_weight_print_btn.setMinimumHeight(38)
         self.cane_weight_print_btn.setMinimumWidth(120)
         actions_layout.addWidget(self.cane_weight_print_btn)
 
-        # Save/Submit start out showing "Save" only (brand new entry, no
-        # existing Cane Weight document yet) - see _update_cane_weight_action_buttons,
-        # which flips this once a Get Data fetch finds an existing Draft or a
-        # Save/Submit round-trip changes the document's docstatus.
         self._update_cane_weight_action_buttons("")
 
-        layout.addWidget(basic_info_group)
-        layout.addWidget(top_row_widget)
-        layout.addWidget(fields_group)
-        layout.addWidget(details_group)
-        layout.addWidget(weight_group)
-        layout.addLayout(actions_layout)
-        layout.addStretch()
+        content_layout.addWidget(actions_card)
+        content_layout.addStretch(1)
+
+        scroll_area.setWidget(content_widget)
+        wrapper_layout.addWidget(scroll_area)
 
         return field_slip_tab
 
@@ -3544,6 +3877,54 @@ class MainWindow(QWidget):
         self.other_weight_fields["tare_weight_user"].setText(self.primary_frappe_username or "")
         self.current_other_weight_doc = None
 
+    def _apply_dialog_geometry(self, dialog, default_w=1200, default_h=700, min_w=950, min_h=520):
+        """Size a dialog generously to prevent unnecessary scrolling while respecting screen boundaries."""
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowMaximizeButtonHint)
+        screen = QApplication.primaryScreen()
+        if screen:
+            geom = screen.availableGeometry()
+            target_w = min(default_w, max(min_w, int(geom.width() * 0.9)))
+            target_h = min(default_h, max(min_h, int(geom.height() * 0.85)))
+            dialog.resize(target_w, target_h)
+        else:
+            dialog.resize(default_w, default_h)
+        dialog.setMinimumSize(min_w, min_h)
+
+    def _style_records_table(self, table):
+        """Apply modern styling with light faint blue alternating row colors to records tables."""
+        table.setAlternatingRowColors(True)
+        table_palette = table.palette()
+        table_palette.setColor(QPalette.Base, QColor("#ffffff"))
+        table_palette.setColor(QPalette.AlternateBase, QColor("#e8f4fc"))
+        table_palette.setColor(QPalette.Text, QColor("#1e293b"))
+        table.setPalette(table_palette)
+        table.setStyleSheet(
+            "QTableWidget { "
+            "background-color: #ffffff; "
+            "alternate-background-color: #e8f4fc; "
+            "color: #1e293b; "
+            "gridline-color: #cbd5e1; "
+            "font-size: 13px; "
+            "selection-background-color: #2563eb; "
+            "selection-color: #ffffff; "
+            "} "
+            "QTableWidget::item { "
+            "color: #1e293b; "
+            "padding: 4px; "
+            "} "
+            "QTableWidget::item:selected { "
+            "background-color: #2563eb; "
+            "color: #ffffff; "
+            "} "
+            "QHeaderView::section { "
+            "background-color: #f1f5f9; "
+            "font-weight: bold; "
+            "color: #1e293b; "
+            "padding: 6px; "
+            "border: 1px solid #cbd5e1; "
+            "}"
+        )
+
     def view_submitted_other_weight_records(self):
         if not self.primary_frappe_logged_in:
             QMessageBox.warning(self, "Warning", "Not logged in to Primary Frappe instance. Please login first.")
@@ -3578,7 +3959,7 @@ class MainWindow(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Other Weight Records")
-            dialog.resize(900, 400)
+            self._apply_dialog_geometry(dialog, default_w=1150, default_h=650, min_w=900, min_h=500)
 
             dialog_layout = QVBoxLayout(dialog)
             table = QTableWidget(len(data), len(fields))
@@ -3588,6 +3969,7 @@ class MainWindow(QWidget):
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
             table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self._style_records_table(table)
 
             header = table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Stretch)
@@ -3843,7 +4225,7 @@ class MainWindow(QWidget):
     
         try:
             self.trip_sheet_status_label.setText("Status: Fetching trip sheets...")
-            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","rope_placement"]'
+            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","trolly_trailer_1","trolly_trailer_2","cart_no_1","cart_no_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","rope_placement"]'
             url = f"{self.trip_sheet_frappe_site_url}/api/resource/Trip Sheet?fields={fields}&limit_page_length=200"
             response = self.trip_sheet_frappe_session.get(url)
             response.raise_for_status()
@@ -3971,6 +4353,7 @@ class MainWindow(QWidget):
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setHorizontalHeaderLabels([header for _, header in columns])
+        self._style_records_table(table)
 
         header = table.horizontalHeader()
         for col_idx in range(len(columns)):
@@ -4236,7 +4619,7 @@ class MainWindow(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Fuel Sale Records")
-            dialog.resize(900, 400)
+            self._apply_dialog_geometry(dialog, default_w=1150, default_h=650, min_w=900, min_h=500)
 
             dialog_layout = QVBoxLayout(dialog)
             table = QTableWidget(len(data), len(fields))
@@ -4247,6 +4630,7 @@ class MainWindow(QWidget):
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
             table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self._style_records_table(table)
 
             header = table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Stretch)
@@ -4525,7 +4909,7 @@ class MainWindow(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Auto Token Records")
-            dialog.resize(900, 400)
+            self._apply_dialog_geometry(dialog, default_w=1150, default_h=650, min_w=900, min_h=500)
 
             dialog_layout = QVBoxLayout(dialog)
             table = QTableWidget(len(data), len(fields))
@@ -4536,6 +4920,7 @@ class MainWindow(QWidget):
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
             table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self._style_records_table(table)
 
             header = table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Stretch)
@@ -4962,7 +5347,7 @@ class MainWindow(QWidget):
                 QMessageBox.critical(self, "Error", error_msg)
     
     def save_primary_frappe_credentials(self):
-        self.primary_frappe_site_url = self.primary_frappe_site_url_input.text().strip()
+        self.primary_frappe_site_url = self.primary_frappe_site_url_input.text().strip().rstrip("/")
         self.primary_frappe_username = self.primary_frappe_username_input.text().strip()
         self.primary_frappe_password = self.primary_frappe_password_input.text().strip()
         
@@ -5564,235 +5949,376 @@ class MainWindow(QWidget):
     def setup_styles(self):
         self.setStyleSheet("""
             QWidget {
-                background-color: #f8f9fa;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            } 
-                headerFrame QLabel {
+                background-color: #f8fafc;
+                color: #1e293b;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                font-size: 12px;
+            }
+
+            QLabel {
+                color: #334155;
+                font-size: 11px;
+                font-weight: 600;
                 background: transparent;
-                }
+            }
 
-
-            
-            #titleLabel {
-                color: white;
-                font-size: 24px;
-                font-weight: bold;
-            }
-            
-            #subtitleLabel {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 12px;
-            }
-            
-            #statusLabel {
-                color: white;
-                font-weight: bold;
-            }
-            
-            QGroupBox {
-                font-weight: bold;
-                font-size: 12px;
-                color: #2c3e50;
-                border: 2px solid #bdc3c7;
+            #headerFrame {
+                background-color: #ffffff;
+                border-bottom: 1px solid #e2e8f0;
                 border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 5px;
             }
-            
+
+            #titleLabel {
+                color: #0f172a;
+                font-size: 16px;
+                font-weight: 700;
+            }
+
+            #subtitleLabel {
+                color: #0284c7;
+                font-size: 11px;
+                font-weight: 500;
+            }
+
+            #statusLabel {
+                color: #1e293b;
+                font-weight: 600;
+            }
+
+            /* Main Header Navigation Tabs */
+            #mainTabBar {
+                background: transparent;
+                border: none;
+            }
+
+            #mainTabBar::tab {
+                background-color: #f1f5f9;
+                color: #475569;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 6px 14px;
+                margin-right: 4px;
+                border-radius: 6px;
+                border: 1px solid #e2e8f0;
+            }
+
+            #mainTabBar::tab:hover {
+                background-color: #e2e8f0;
+                color: #0f172a;
+            }
+
+            #mainTabBar::tab:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+                border: 1px solid #2563eb;
+            }
+
+            /* Cards & Group Boxes */
+            QGroupBox {
+                font-weight: 700;
+                font-size: 12px;
+                color: #0f172a;
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 8px;
+            }
+
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 10px 0 10px;
-                background-color: #f8f9fa;
-            }
-            
-            #settingsGroup {
-                border-color: #3498db;
-            }
-            
-            #dataGroup {
-                border-color: #27ae60;
+                subcontrol-position: top left;
+                left: 12px;
+                padding: 0 6px;
+                background-color: #ffffff;
+                color: #1e293b;
+                font-weight: 700;
             }
 
-            /* Settings tab: each group gets its own accent color so the sections are
-               easy to tell apart at a glance. */
+            #settingsGroup {
+                border-color: #38bdf8;
+            }
+
+            #dataGroup {
+                border-color: #4ade80;
+            }
+
             #serialSettingsGroup {
-                border-color: #3498db;
+                border-color: #38bdf8;
             }
 
             #secondaryFrappeGroup {
-                border-color: #9b59b6;
+                border-color: #c084fc;
             }
 
             #thirdFrappeGroup {
-                border-color: #e67e22;
+                border-color: #fb923c;
             }
 
             #tripSheetGroup {
-                border-color: #16a085;
+                border-color: #2dd4bf;
             }
 
             #autoSyncGroup {
-                border-color: #27ae60;
+                border-color: #4ade80;
             }
 
             #rfidSettingsGroup {
-                border-color: #c0392b;
+                border-color: #f87171;
             }
 
             #settingsStatusPill {
-                background-color: #ecf0f1;
-                color: #2c3e50;
+                background-color: #f1f5f9;
+                color: #1e293b;
                 font-weight: 600;
                 font-size: 11px;
                 padding: 6px 10px;
                 border-radius: 6px;
-                border: 1px solid #dbe1e8;
+                border: 1px solid #e2e8f0;
             }
 
+            /* Buttons */
             QPushButton {
-                background-color: #3498db;
-                color: white;
+                background-color: #2563eb;
+                color: #ffffff;
                 border: none;
-                padding: 8px 16px;
+                padding: 6px 14px;
                 border-radius: 6px;
-                font-weight: bold;
-                min-height: 20px;
+                font-weight: 600;
+                font-size: 12px;
+                min-height: 22px;
             }
-            
+
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #1d4ed8;
             }
-            
+
             QPushButton:pressed {
-                background-color: #21618c;
+                background-color: #1e40af;
             }
-            
+
+            QPushButton:disabled {
+                background-color: #94a3b8;
+                color: #f8fafc;
+            }
+
             #connectBtn {
-                background-color: #27ae60;
-                min-width: 100px;
+                background-color: #059669;
+                min-width: 90px;
             }
-            
+
             #connectBtn:hover {
-                background-color: #229954;
+                background-color: #047857;
             }
-            
+
             #connectBtn[connected="true"] {
-                background-color: #e74c3c;
+                background-color: #dc2626;
             }
-            
+
             #connectBtn[connected="true"]:hover {
-                background-color: #c0392b;
+                background-color: #b91c1c;
             }
-            
+
             #clearBtn {
-                background-color: #f39c12;
+                background-color: #d97706;
+                color: #ffffff;
             }
-            
+
             #clearBtn:hover {
-                background-color: #e67e22;
+                background-color: #b45309;
             }
-            
+
             #saveBtn, #saveApiBtn {
-                background-color: #9b59b6;
+                background-color: #7c3aed;
+                color: #ffffff;
             }
-            
+
             #saveBtn:hover, #saveApiBtn:hover {
-                background-color: #8e44ad;
+                background-color: #6d28d9;
             }
-            
+
             #sendBtn, #submitBtn {
-                background-color: #e74c3c;
+                background-color: #059669;
+                color: #ffffff;
             }
-            
+
             #sendBtn:hover, #submitBtn:hover {
-                background-color: #c0392b;
+                background-color: #047857;
             }
-            
+
             #syncBtn {
-                background-color: #27ae60;
+                background-color: #059669;
+                color: #ffffff;
             }
-            
+
             #syncBtn:hover {
-                background-color: #229954;
+                background-color: #047857;
             }
-            
-            QLineEdit, QComboBox, QSpinBox, QDateEdit, QDateTimeEdit, QTableWidget {
-                padding: 8px;
-                border: 2px solid #bdc3c7;
+
+            #viewBtn {
+                background-color: #0284c7;
+                color: #ffffff;
+            }
+
+            #viewBtn:hover {
+                background-color: #0369a1;
+            }
+
+            #printBtn {
+                background-color: #16a34a;
+                color: #ffffff;
+            }
+
+            #printBtn:hover {
+                background-color: #15803d;
+            }
+
+            /* Inputs */
+            QLineEdit, QComboBox, QSpinBox, QDateEdit, QDateTimeEdit, QTimeEdit, QDoubleSpinBox, QTableWidget {
+                padding: 5px 8px;
+                border: 1px solid #cbd5e1;
                 border-radius: 6px;
-                background-color: white;
+                background-color: #ffffff;
+                color: #0f172a;
                 font-size: 11px;
             }
-            
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QDateTimeEdit:focus, QTableWidget:focus {
-                border-color: #3498db;
+
+            QTableWidget {
+                alternate-background-color: #e8f4fc;
             }
-            
+
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QDateTimeEdit:focus, QTimeEdit:focus, QDoubleSpinBox:focus, QTableWidget:focus {
+                border: 1.5px solid #2563eb;
+                background-color: #ffffff;
+            }
+
+            QLineEdit:read-only, QDateEdit:disabled, QTimeEdit:disabled, QDateTimeEdit:disabled, QSpinBox:disabled {
+                background-color: #f8fafc;
+                color: #334155;
+                border: 1px solid #e2e8f0;
+            }
+
             #dataOutput {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-                border: 2px solid #34495e;
+                background-color: #0f172a;
+                color: #f1f5f9;
+                border: 1px solid #334155;
                 border-radius: 6px;
                 padding: 10px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
             }
-            
+
             #sendHistory {
-                background-color: #ecf0f1;
-                color: #2c3e50;
-                border: 2px solid #bdc3c7;
+                background-color: #f8fafc;
+                color: #1e293b;
+                border: 1px solid #cbd5e1;
                 border-radius: 6px;
-                padding: 5px;
+                padding: 6px;
             }
-            
+
             #statusBar {
-                background-color: #34495e;
-                color: white;
+                background-color: #1e293b;
+                color: #f8fafc;
                 border-radius: 6px;
-                padding: 8px;
-                margin-top: 5px;
+                padding: 6px 10px;
+                margin-top: 4px;
             }
-            
+
+            /* General TabWidget & TabBar (e.g. Field Slip / Detailed Entry) */
             QTabWidget::pane {
-                border: 2px solid #bdc3c7;
-                border-radius: 6px;
-                background-color: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background-color: #ffffff;
             }
-            
+
             QTabBar::tab {
-                background-color: #ecf0f1;
-                padding: 8px 20px;
-                margin: 2px;
+                background-color: #f1f5f9;
+                color: #475569;
+                padding: 6px 16px;
+                margin: 2px 3px;
                 border-radius: 6px;
-            }
-            
-            QTabBar::tab:selected {
-                background-color: #3498db;
-                color: white;
-            }
-            
-            QCheckBox {
-                spacing: 8px;
+                border: 1px solid #e2e8f0;
+                font-weight: 600;
                 font-size: 11px;
             }
-            
+
+            QTabBar::tab:hover {
+                background-color: #e2e8f0;
+                color: #0f172a;
+            }
+
+            QTabBar::tab:selected {
+                background-color: #0284c7;
+                color: #ffffff;
+                border-color: #0284c7;
+            }
+
+            /* Checkboxes */
+            QCheckBox {
+                spacing: 6px;
+                font-size: 11px;
+                font-weight: 600;
+                color: #334155;
+                background: transparent;
+            }
+
             QCheckBox::indicator {
                 width: 16px;
                 height: 16px;
-                border-radius: 3px;
-                border: 2px solid #bdc3c7;
-                background-color: white;
+                border-radius: 4px;
+                border: 1px solid #cbd5e1;
+                background-color: #ffffff;
             }
-            
+
+            QCheckBox::indicator:hover {
+                border-color: #2563eb;
+            }
+
             QCheckBox::indicator:checked {
-                background-color: #3498db;
-                border-color: #3498db;
+                background-color: #2563eb;
+                border-color: #2563eb;
+            }
+
+            /* Scroll Area */
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f1f5f9;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #cbd5e1;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #94a3b8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
     
+    def _on_com_port_changed(self, text):
+        port_name = text.split(' -')[0].strip()
+        if port_name and port_name not in ("No ports available", "No ports detected"):
+            self.default_com_port = port_name
+
     def refresh_ports(self):
-        current_port = self.port_combo.currentText()
+        current_text = self.port_combo.currentText().strip()
+        current_data = self.port_combo.currentData()
+        configured_port = ""
+        if current_data:
+            configured_port = str(current_data).strip()
+        elif current_text and current_text not in ("No ports available", "No ports detected"):
+            configured_port = current_text.split(' -')[0].strip()
+        if not configured_port:
+            configured_port = getattr(self, "default_com_port", "COM1")
+
+        self.port_combo.blockSignals(True)
         self.port_combo.clear()
         ports = serial.tools.list_ports.comports()
         port_names = []
@@ -5802,11 +6328,41 @@ class MainWindow(QWidget):
                 port_info += f" - {port.description}"
             port_names.append(port_info)
             self.port_combo.addItem(port_info, port.device)
+
         if not port_names:
-            self.port_combo.addItem("No ports available", "")
-        index = self.port_combo.findText(current_port)
-        if index >= 0:
-            self.port_combo.setCurrentIndex(index)
+            # Fallback to default expected COM1 port if no ports detected dynamically
+            self.port_combo.addItem("COM1", "COM1")
+
+        # 1. Try to restore configured_port in available ports
+        target_index = -1
+        if configured_port:
+            target_index = self.port_combo.findData(configured_port)
+            if target_index < 0:
+                for i in range(self.port_combo.count()):
+                    dev = str(self.port_combo.itemData(i) or "")
+                    txt = self.port_combo.itemText(i)
+                    if dev.upper() == configured_port.upper() or txt.upper().startswith(configured_port.upper()):
+                        target_index = i
+                        break
+
+        # 2. If configured_port was not found in available dynamic ports, check if COM1 (expected default) is available
+        if target_index < 0:
+            target_index = self.port_combo.findData("COM1")
+            if target_index < 0:
+                for i in range(self.port_combo.count()):
+                    dev = str(self.port_combo.itemData(i) or "")
+                    txt = self.port_combo.itemText(i)
+                    if dev.upper() == "COM1" or txt.upper().startswith("COM1"):
+                        target_index = i
+                        break
+
+        # 3. If neither configured_port nor COM1 is available, default to first available dynamic port
+        if target_index >= 0:
+            self.port_combo.setCurrentIndex(target_index)
+        elif self.port_combo.count() > 0:
+            self.port_combo.setCurrentIndex(0)
+
+        self.port_combo.blockSignals(False)
     
     def toggle_connection(self):
         """Toggle serial port connection on/off."""
@@ -5817,13 +6373,14 @@ class MainWindow(QWidget):
     
     def connect_serial(self):
         """Establish connection to the selected serial port."""
-        port_text = self.port_combo.currentText()
-        if not port_text or port_text == "No ports available":
+        port_text = self.port_combo.currentText().strip()
+        if not port_text or port_text in ("No ports available", "No ports detected"):
             QMessageBox.warning(self, "Warning", "No COM port selected!")
             self.output.append("[ERROR] No COM port selected. Please select a valid port.")
             return
         
-        port = self.port_combo.currentData() or port_text.split(' -')[0]
+        port = self.port_combo.currentData() or port_text.split(' -')[0].strip()
+        self.default_com_port = port
         try:
             baud = int(self.baud_combo.currentText())
         except ValueError:
@@ -5881,6 +6438,7 @@ class MainWindow(QWidget):
             self.connect_btn.setText("🔌 Disconnect")
             self.connect_btn.setProperty("connected", "true")
             self.connect_btn.setEnabled(True)
+            self.default_com_port = self.port_combo.currentData() or self.port_combo.currentText().split(' -')[0].strip()
             
             # Enable send controls
             self.send_btn.setEnabled(True)
@@ -6145,6 +6703,10 @@ class MainWindow(QWidget):
             payload["vehicle_no"] = form_data.get("vehicle_no") or ""
             payload["trolly_1"] = form_data.get("trolly_1") or ""
             payload["trolly_2"] = form_data.get("trolly_2") or ""
+            payload["trolly_trailer_1"] = form_data.get("trolly_trailer_1") or ""
+            payload["trolly_trailer_2"] = form_data.get("trolly_trailer_2") or ""
+            payload["cart_no_1"] = form_data.get("cart_no_1") or ""
+            payload["cart_no_2"] = form_data.get("cart_no_2") or ""
             payload["rope_placement"] = form_data.get("rope_placement") or ""
 
             # Slip No (from Token & Deduction tab)
@@ -6532,7 +7094,7 @@ class MainWindow(QWidget):
             "doctype": "Cane Weight",
             "name": doc_name,
             "trigger_print": "1",
-            "format": "Cane Weight – A4 Standard",
+            "format": "Cane Weight pf",
             "no_letterhead": "0",
             "letterhead": "Internal Letter Head",
             "settings": "{}",
@@ -7617,7 +8179,7 @@ class MainWindow(QWidget):
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Diesel Sale Records")
-            dialog.resize(1000, 500)
+            self._apply_dialog_geometry(dialog, default_w=1150, default_h=650, min_w=900, min_h=500)
 
             dialog_layout = QVBoxLayout(dialog)
             table = QTableWidget()
@@ -7626,6 +8188,7 @@ class MainWindow(QWidget):
             table.setRowCount(len(data))
             table.setEditTriggers(QTableWidget.NoEditTriggers)
             table.setSelectionBehavior(QTableWidget.SelectRows)
+            self._style_records_table(table)
 
             for row_idx, record in enumerate(data):
                 for col_idx, field in enumerate(fields):
@@ -8299,7 +8862,7 @@ class MainWindow(QWidget):
             # Create dialog to display records
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Cane Inward Slip Records")
-            dialog.resize(1000, 600)
+            self._apply_dialog_geometry(dialog, default_w=1150, default_h=650, min_w=900, min_h=500)
             dialog_layout = QVBoxLayout(dialog)
 
             table = QTableWidget()
@@ -8308,6 +8871,7 @@ class MainWindow(QWidget):
             table.setRowCount(len(data))
             table.setEditTriggers(QTableWidget.NoEditTriggers)
             table.setSelectionBehavior(QTableWidget.SelectRows)
+            self._style_records_table(table)
 
             for row_idx, record in enumerate(data):
                 for col_idx, field in enumerate(fields):
@@ -8430,6 +8994,14 @@ class MainWindow(QWidget):
             self.form_fields['trolly_1'].setText(str(doc['trolly_1']))
         if 'trolly_2' in doc:
             self.form_fields['trolly_2'].setText(str(doc['trolly_2']))
+        if 'trolly_trailer_1' in doc and 'trolly_trailer_1' in self.form_fields:
+            self.form_fields['trolly_trailer_1'].setText(str(doc['trolly_trailer_1'] or ""))
+        if 'trolly_trailer_2' in doc and 'trolly_trailer_2' in self.form_fields:
+            self.form_fields['trolly_trailer_2'].setText(str(doc['trolly_trailer_2'] or ""))
+        if 'cart_no_1' in doc and 'cart_no_1' in self.form_fields:
+            self.form_fields['cart_no_1'].setText(str(doc['cart_no_1'] or ""))
+        if 'cart_no_2' in doc and 'cart_no_2' in self.form_fields:
+            self.form_fields['cart_no_2'].setText(str(doc['cart_no_2'] or ""))
         if 'transporter_gang_type' in doc:
             self.form_fields['transporter_gang_type'].setText(doc['transporter_gang_type'])
         if 'harvester' in doc:
@@ -8720,106 +9292,249 @@ class MainWindow(QWidget):
             return
 
         try:
-            filters = [["docstatus", "=", 1]]
             fields = [
                 "name", "season", "branch", "trip_sheet", "farmer_name",
                 "vehicle_no", "net_weight", "modified"
             ]
-            resource = quote("Cane Weight")
-            params = {
-                "filters": json.dumps(filters),
-                "fields": json.dumps(fields),
-                "limit_page_length": 50,
-                "order_by": "modified desc",
-            }
 
-            url = f"{self.primary_frappe_site_url}/api/resource/{resource}"
-            headers = {"Accept": "application/json"}
-            self.output.append(f"[Cane Weight Records] Fetching submitted records: {url} | params={params}")
+            def fetch_records(trip_sheet_filter=""):
+                req_filters = [["docstatus", "=", 1]]
+                if trip_sheet_filter:
+                    clean_ts = trip_sheet_filter.strip()
+                    req_filters.append(["trip_sheet", "like", f"%{clean_ts}%"])
 
-            data = []
-            try:
-                response = self.primary_frappe_session.get(url, params=params, headers=headers, timeout=20)
-                response.raise_for_status()
-                data = response.json().get("data", [])
-            except requests.exceptions.HTTPError as primary_error:
-                primary_response = primary_error.response
-                status = primary_response.status_code if primary_response is not None else "N/A"
-                text = primary_response.text if primary_response is not None else "No response text"
-                self.output.append(
-                    f"[Cane Weight Records] Primary fetch failed with HTTP {status}: {text}"
-                )
-
-                fallback_payload = {
-                    "doctype": "Cane Weight",
-                    "filters": filters,
-                    "fields": fields,
+                resource = quote("Cane Weight")
+                params = {
+                    "filters": json.dumps(req_filters),
+                    "fields": json.dumps(fields),
+                    "limit_page_length": 200,
                     "order_by": "modified desc",
-                    "limit_page_length": 50,
                 }
-                fallback_url = f"{self.primary_frappe_site_url}/api/method/frappe.client.get_list"
-                fallback_headers = {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                }
-                self.output.append(
-                    f"[Cane Weight Records] Falling back to frappe.client.get_list via {fallback_url}"
-                )
-                fallback_response = self.primary_frappe_session.post(
-                    fallback_url,
-                    json=fallback_payload,
-                    headers=fallback_headers,
-                    timeout=20,
-                )
-                fallback_response.raise_for_status()
-                fallback_json = fallback_response.json()
-                data = fallback_json.get("message") or fallback_json.get("data") or []
+                url = f"{self.primary_frappe_site_url}/api/resource/{resource}"
+                headers = {"Accept": "application/json"}
+                self.output.append(f"[Cane Weight Records] Fetching submitted records: {url} | params={params}")
 
-            if not data:
+                try:
+                    response = self.primary_frappe_session.get(url, params=params, headers=headers, timeout=20)
+                    response.raise_for_status()
+                    return response.json().get("data", [])
+                except requests.exceptions.HTTPError as primary_error:
+                    primary_response = primary_error.response
+                    status = primary_response.status_code if primary_response is not None else "N/A"
+                    text = primary_response.text if primary_response is not None else "No response text"
+                    self.output.append(
+                        f"[Cane Weight Records] Primary fetch failed with HTTP {status}: {text}"
+                    )
+
+                    fallback_payload = {
+                        "doctype": "Cane Weight",
+                        "filters": req_filters,
+                        "fields": fields,
+                        "order_by": "modified desc",
+                        "limit_page_length": 200,
+                    }
+                    fallback_url = f"{self.primary_frappe_site_url}/api/method/frappe.client.get_list"
+                    fallback_headers = {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    }
+                    self.output.append(
+                        f"[Cane Weight Records] Falling back to frappe.client.get_list via {fallback_url}"
+                    )
+                    fallback_response = self.primary_frappe_session.post(
+                        fallback_url,
+                        json=fallback_payload,
+                        headers=fallback_headers,
+                        timeout=20,
+                    )
+                    fallback_response.raise_for_status()
+                    fallback_json = fallback_response.json()
+                    return fallback_json.get("message") or fallback_json.get("data") or []
+
+            initial_data = fetch_records("")
+            if not initial_data:
                 QMessageBox.information(self, "No Records", "No submitted Cane Weight records were found.")
                 self.output.append("[Cane Weight Records] No submitted records returned.")
                 return
 
             dialog = QDialog(self)
             dialog.setWindowTitle("Submitted Cane Weight Records")
-            dialog.resize(900, 400)
+            self._apply_dialog_geometry(dialog, default_w=1250, default_h=720, min_w=950, min_h=520)
 
             dialog_layout = QVBoxLayout(dialog)
-            table = QTableWidget(len(data), len(fields) + 1)
+            dialog_layout.setContentsMargins(14, 14, 14, 14)
+            dialog_layout.setSpacing(10)
+
+            # Filter controls section
+            filter_frame = QFrame()
+            filter_frame.setStyleSheet(
+                "QFrame { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; } "
+                "QLabel { font-weight: 600; color: #1e293b; font-size: 13px; } "
+                "QComboBox { background-color: white; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px 8px; font-size: 13px; } "
+                "QComboBox:focus { border: 1px solid #2563eb; } "
+                "QPushButton { font-weight: bold; border-radius: 4px; padding: 6px 14px; font-size: 12px; }"
+            )
+            filter_layout = QHBoxLayout(filter_frame)
+            filter_layout.setContentsMargins(10, 8, 10, 8)
+            filter_layout.setSpacing(10)
+
+            filter_layout.addWidget(QLabel("Trip Sheet Name:"))
+
+            trip_sheet_filter_combo = QComboBox()
+            trip_sheet_filter_combo.setEditable(True)
+            trip_sheet_filter_combo.setMinimumWidth(280)
+            trip_sheet_filter_combo.setMinimumHeight(34)
+            if trip_sheet_filter_combo.lineEdit():
+                trip_sheet_filter_combo.lineEdit().setPlaceholderText("Enter or select Trip Sheet Name (e.g. 134 or TS/2627/134)...")
+                trip_sheet_filter_combo.lineEdit().setClearButtonEnabled(True)
+
+            completer = trip_sheet_filter_combo.completer()
+            if completer:
+                completer.setFilterMode(Qt.MatchContains)
+                completer.setCompletionMode(QCompleter.PopupCompletion)
+
+            # Build list of unique trip sheet names from data and cached trip sheets
+            unique_ts_set = set()
+            for r in initial_data:
+                ts = str(r.get("trip_sheet", "")).strip()
+                if ts:
+                    unique_ts_set.add(ts)
+            if hasattr(self, 'trip_sheets_data') and self.trip_sheets_data:
+                for ts_item in self.trip_sheets_data:
+                    ts_name = ts_item.get("name") if isinstance(ts_item, dict) else str(ts_item)
+                    if ts_name and ts_name.strip():
+                        unique_ts_set.add(ts_name.strip())
+
+            trip_sheet_filter_combo.addItem("All Trip Sheets", "")
+            for ts in sorted(unique_ts_set):
+                trip_sheet_filter_combo.addItem(ts, ts)
+
+            filter_layout.addWidget(trip_sheet_filter_combo)
+
+            apply_filter_btn = QPushButton("🔍 Filter")
+            apply_filter_btn.setStyleSheet(
+                "QPushButton { background-color: #2563eb; color: white; border: none; } "
+                "QPushButton:hover { background-color: #1d4ed8; } "
+                "QPushButton:pressed { background-color: #1e40af; }"
+            )
+            filter_layout.addWidget(apply_filter_btn)
+
+            clear_filter_btn = QPushButton("✖ Clear")
+            clear_filter_btn.setStyleSheet(
+                "QPushButton { background-color: #64748b; color: white; border: none; } "
+                "QPushButton:hover { background-color: #475569; } "
+                "QPushButton:pressed { background-color: #334155; }"
+            )
+            filter_layout.addWidget(clear_filter_btn)
+
+            filter_layout.addStretch()
+
+            record_count_label = QLabel(f"Showing all {len(initial_data)} records")
+            record_count_label.setStyleSheet("color: #475569; font-size: 12px; font-weight: 600;")
+            filter_layout.addWidget(record_count_label)
+
+            dialog_layout.addWidget(filter_frame)
+
+            # Table for records
+            table = QTableWidget()
+            table.setColumnCount(len(fields) + 1)
             table.setHorizontalHeaderLabels([
-                "Name", "Season", "Branch", "Slip No", "Farmer",
+                "Name", "Season", "Branch", "Trip Sheet", "Farmer",
                 "Vehicle Number", "Cane Weight", "Modified", "Print"
             ])
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
             table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self._style_records_table(table)
 
             header = table.horizontalHeader()
-            header.setSectionResizeMode(QHeaderView.Stretch)
+            header.setSectionResizeMode(QHeaderView.Interactive)
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.Stretch)
+            header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(8, QHeaderView.Fixed)
+            table.setColumnWidth(8, 85)
 
-            for row, record in enumerate(data):
-                table.setItem(row, 0, QTableWidgetItem(str(record.get("name", ""))))
-                table.setItem(row, 1, QTableWidgetItem(str(record.get("season", ""))))
-                table.setItem(row, 2, QTableWidgetItem(str(record.get("branch", ""))))
-                table.setItem(row, 3, QTableWidgetItem(str(record.get("trip_sheet", ""))))
-                table.setItem(row, 4, QTableWidgetItem(str(record.get("farmer_name", ""))))
-                table.setItem(row, 5, QTableWidgetItem(str(record.get("vehicle_no", ""))))
-                table.setItem(row, 6, QTableWidgetItem(str(record.get("net_weight", ""))))
-                table.setItem(row, 7, QTableWidgetItem(str(record.get("modified", ""))))
+            all_records = list(initial_data)
 
-                print_btn = QPushButton("Print")
-                print_btn.setStyleSheet(
-                    "QPushButton { background-color: #FF8C00; color: white; font-weight: bold; "
-                    "border: none; border-radius: 3px; padding: 4px 10px; } "
-                    "QPushButton:hover { background-color: #E67E00; } "
-                    "QPushButton:pressed { background-color: #CC7000; }"
-                )
-                record_name = str(record.get("name", "")).strip()
-                print_btn.clicked.connect(
-                    lambda _checked=False, n=record_name: self._open_cane_weight_print_view(n)
-                )
-                table.setCellWidget(row, 8, print_btn)
+            def populate_table(records_to_show):
+                table.setRowCount(len(records_to_show))
+                for row, record in enumerate(records_to_show):
+                    table.setItem(row, 0, QTableWidgetItem(str(record.get("name", ""))))
+                    table.setItem(row, 1, QTableWidgetItem(str(record.get("season", ""))))
+                    table.setItem(row, 2, QTableWidgetItem(str(record.get("branch", ""))))
+                    table.setItem(row, 3, QTableWidgetItem(str(record.get("trip_sheet", ""))))
+                    table.setItem(row, 4, QTableWidgetItem(str(record.get("farmer_name", ""))))
+                    table.setItem(row, 5, QTableWidgetItem(str(record.get("vehicle_no", ""))))
+                    table.setItem(row, 6, QTableWidgetItem(str(record.get("net_weight", ""))))
+                    table.setItem(row, 7, QTableWidgetItem(str(record.get("modified", ""))))
 
+                    print_btn = QPushButton("Print")
+                    print_btn.setStyleSheet(
+                        "QPushButton { background-color: #FF8C00; color: white; font-weight: bold; "
+                        "border: none; border-radius: 3px; padding: 4px 10px; } "
+                        "QPushButton:hover { background-color: #E67E00; } "
+                        "QPushButton:pressed { background-color: #CC7000; }"
+                    )
+                    record_name = str(record.get("name", "")).strip()
+                    print_btn.clicked.connect(
+                        lambda _checked=False, n=record_name: self._open_cane_weight_print_view(n)
+                    )
+                    table.setCellWidget(row, 8, print_btn)
+
+            def apply_filter(fetch_server_if_missing=True):
+                query = trip_sheet_filter_combo.currentText().strip()
+                if not query or query == "All Trip Sheets":
+                    populate_table(all_records)
+                    record_count_label.setText(f"Showing all {len(all_records)} records")
+                    return
+
+                q_lower = query.lower()
+                prefix = getattr(self, "TRIP_SHEET_PREFIX", "TS/2627/").lower()
+
+                matched = []
+                for r in all_records:
+                    ts = str(r.get("trip_sheet", "")).strip().lower()
+                    if q_lower in ts or f"{prefix}{q_lower}" in ts or (q_lower.startswith("ts/") and q_lower == ts):
+                        matched.append(r)
+
+                if not matched and fetch_server_if_missing:
+                    try:
+                        server_records = fetch_records(query)
+                        if server_records:
+                            for sr in server_records:
+                                if not any(r.get("name") == sr.get("name") for r in all_records):
+                                    all_records.append(sr)
+                                matched.append(sr)
+                    except Exception as err:
+                        self.output.append(f"[Cane Weight Records] Server filter query failed: {err}")
+
+                populate_table(matched)
+                if matched:
+                    record_count_label.setText(f"Showing {len(matched)} record(s) for '{query}'")
+                else:
+                    record_count_label.setText(f"No records found for '{query}'")
+
+            def reset_filter():
+                trip_sheet_filter_combo.setCurrentIndex(0)
+                if trip_sheet_filter_combo.lineEdit():
+                    trip_sheet_filter_combo.lineEdit().clear()
+                populate_table(all_records)
+                record_count_label.setText(f"Showing all {len(all_records)} records")
+
+            trip_sheet_filter_combo.currentTextChanged.connect(lambda _: apply_filter(fetch_server_if_missing=False))
+            trip_sheet_filter_combo.currentIndexChanged.connect(lambda _: apply_filter(fetch_server_if_missing=False))
+            if trip_sheet_filter_combo.lineEdit():
+                trip_sheet_filter_combo.lineEdit().returnPressed.connect(lambda: apply_filter(fetch_server_if_missing=True))
+            apply_filter_btn.clicked.connect(lambda: apply_filter(fetch_server_if_missing=True))
+            clear_filter_btn.clicked.connect(reset_filter)
+
+            populate_table(all_records)
             dialog_layout.addWidget(table)
 
             def load_selected_record():
@@ -8844,8 +9559,18 @@ class MainWindow(QWidget):
 
             button_layout = QHBoxLayout()
             load_btn = QPushButton("Load Selected")
+            load_btn.setStyleSheet(
+                "QPushButton { background-color: #059669; color: white; font-weight: bold; border-radius: 4px; padding: 6px 16px; font-size: 13px; } "
+                "QPushButton:hover { background-color: #047857; } "
+                "QPushButton:pressed { background-color: #065f46; }"
+            )
             load_btn.clicked.connect(load_selected_record)
             close_btn = QPushButton("Close")
+            close_btn.setStyleSheet(
+                "QPushButton { background-color: #64748b; color: white; font-weight: bold; border-radius: 4px; padding: 6px 16px; font-size: 13px; } "
+                "QPushButton:hover { background-color: #475569; } "
+                "QPushButton:pressed { background-color: #334155; }"
+            )
             close_btn.clicked.connect(dialog.reject)
             button_layout.addStretch()
             button_layout.addWidget(load_btn)
@@ -8868,6 +9593,397 @@ class MainWindow(QWidget):
             error_msg = str(e)
             self.output.append(f"[Cane Weight Records] Unexpected error: {error_msg}")
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {error_msg}")
+
+
+    def open_slip_details_report(self):
+        """Open Slip Details report dialog showing records from Trip Sheet.
+        Filters (Transporter Contract and Trip Sheet) are searchable and filter options
+        as the user enters text. Records auto-load when both filters are filled,
+        and the operator can load the selected record into the Cane Weight form."""
+        if not self.primary_frappe_logged_in:
+            QMessageBox.warning(self, "Warning", "Not logged in to Primary Frappe instance. Please login first.")
+            self.output.append("[Slip Details Report] Aborted: not logged in to primary instance.")
+            return
+
+        if not self.primary_frappe_site_url:
+            QMessageBox.warning(self, "Warning", "Primary Frappe site URL is not configured.")
+            self.output.append("[Slip Details Report] Aborted: primary site URL missing.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Slip Details Report")
+        self._apply_dialog_geometry(dialog, default_w=1350, default_h=720, min_w=1000, min_h=550)
+
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.setContentsMargins(14, 14, 14, 14)
+        dialog_layout.setSpacing(10)
+
+        # Filter controls section
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet(
+            "QFrame { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; } "
+            "QLabel { font-weight: 600; color: #1e293b; font-size: 13px; } "
+            "QComboBox { background-color: #ffffff; color: #0f172a; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px 28px 4px 8px; font-size: 13px; } "
+            "QComboBox:focus { border: 1px solid #2563eb; } "
+            "QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 24px; border-left: 1px solid #cbd5e1; } "
+            "QComboBox::down-arrow { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #475569; } "
+            "QComboBox QAbstractItemView { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; selection-background-color: #2563eb; selection-color: #ffffff; outline: none; } "
+            "QComboBox QAbstractItemView::item { min-height: 28px; padding: 4px 8px; color: #0f172a; } "
+            "QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected { background-color: #2563eb; color: #ffffff; } "
+            "QPushButton { font-weight: bold; border-radius: 4px; padding: 6px 14px; font-size: 12px; }"
+        )
+        filter_layout = QHBoxLayout(filter_frame)
+        filter_layout.setContentsMargins(10, 8, 10, 8)
+        filter_layout.setSpacing(10)
+
+        filter_layout.addWidget(QLabel("Transporter Contract:"))
+        tc_combo = SearchableComboBox(filter_frame, placeholder="Type or select Transporter Contract...")
+        tc_combo.setMinimumWidth(280)
+        tc_combo.setMinimumHeight(34)
+        filter_layout.addWidget(tc_combo)
+
+        filter_layout.addWidget(QLabel("Trip Sheet:"))
+        ts_combo = SearchableComboBox(filter_frame, placeholder="Type or select Trip Sheet (e.g. 134)...")
+        ts_combo.setMinimumWidth(260)
+        ts_combo.setMinimumHeight(34)
+        filter_layout.addWidget(ts_combo)
+
+        # Button in filters to show/load the option set of values from trip sheet list
+        load_options_btn = QPushButton("🔄 Show Options")
+        load_options_btn.setToolTip("Show option set of values from trip sheet list (transporter contract, trip sheet)")
+        load_options_btn.setStyleSheet(
+            "QPushButton { background-color: #0d9488; color: white; border: none; } "
+            "QPushButton:hover { background-color: #0f766e; } "
+            "QPushButton:pressed { background-color: #115e59; }"
+        )
+        filter_layout.addWidget(load_options_btn)
+
+        apply_filter_btn = QPushButton("🔍 Filter")
+        apply_filter_btn.setStyleSheet(
+            "QPushButton { background-color: #2563eb; color: white; border: none; } "
+            "QPushButton:hover { background-color: #1d4ed8; } "
+            "QPushButton:pressed { background-color: #1e40af; }"
+        )
+        filter_layout.addWidget(apply_filter_btn)
+
+        clear_filter_btn = QPushButton("✖ Clear")
+        clear_filter_btn.setStyleSheet(
+            "QPushButton { background-color: #64748b; color: white; border: none; } "
+            "QPushButton:hover { background-color: #475569; } "
+            "QPushButton:pressed { background-color: #334155; }"
+        )
+        filter_layout.addWidget(clear_filter_btn)
+
+        filter_layout.addStretch()
+
+        record_count_label = QLabel("Select both filters to view records")
+        record_count_label.setStyleSheet("color: #475569; font-size: 12px; font-weight: 600;")
+        filter_layout.addWidget(record_count_label)
+
+        dialog_layout.addWidget(filter_frame)
+
+        # Columns for Slip Details
+        columns = [
+            ("name", "Trip Sheet", 130),
+            ("slip_no", "Slip No", 80),
+            ("trolly_trailer_1", "Trolly Trailer 1", 120),
+            ("trolly_trailer_2", "Trolly Trailer 2", 120),
+            ("rope_placement", "Rope Placement", 140),
+            ("transporter_vehicle_type", "Transporter Vehicle Type", 150),
+            ("ht_driver", "HT Driver", 130),
+            ("farmer", "Farmer", 150),
+            ("cane_registration", "Cane Registration", 130),
+            ("transporter_contract_name", "Transporter Contract Name", 170),
+            ("harvester_contract_name", "Harvestor Contract Name", 170),
+        ]
+
+        table = QTableWidget()
+        table.setColumnCount(len(columns))
+        table.setHorizontalHeaderLabels([col[1] for col in columns])
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._style_records_table(table)
+
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        for idx, col in enumerate(columns):
+            table.setColumnWidth(idx, col[2])
+
+        dialog_layout.addWidget(table)
+
+        # Data caches & timers
+        master_contracts = []
+        master_trip_sheets = []
+        all_trip_sheet_details = []
+
+        auto_load_timer = QTimer(dialog)
+        auto_load_timer.setSingleShot(True)
+        auto_load_timer.setInterval(350)
+
+        tc_debounce_timer = QTimer(dialog)
+        tc_debounce_timer.setSingleShot(True)
+        tc_debounce_timer.setInterval(350)
+
+        def populate_table(records):
+            table.setRowCount(len(records))
+            for row_idx, r in enumerate(records):
+                for col_idx, (key, _, _) in enumerate(columns):
+                    val = r.get(key)
+                    if val is None or val == "":
+                        if key == "trolly_trailer_1":
+                            val = r.get("trolly_1") or ""
+                        elif key == "trolly_trailer_2":
+                            val = r.get("trolly_2") or ""
+                        elif key == "ht_driver":
+                            val = r.get("ht_driver_name") or ""
+                        elif key == "farmer":
+                            f_code = r.get("farmer") or ""
+                            f_name = r.get("farmer_name") or ""
+                            val = f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code)
+                        elif key == "transporter_contract_name":
+                            val = r.get("transporter_contract") or r.get("transporter_name") or ""
+                        elif key == "harvester_contract_name":
+                            val = r.get("harvester_contract") or r.get("harvester_name") or ""
+                    val_str = "" if val is None else str(val)
+                    item = QTableWidgetItem(val_str)
+                    table.setItem(row_idx, col_idx, item)
+
+        def get_clean_filter_values():
+            raw_tc = tc_combo.currentText().strip()
+            raw_ts = ts_combo.currentText().strip()
+            tc = raw_tc.split(" - ")[0].strip() if " - " in raw_tc else raw_tc
+            ts = raw_ts
+            if " (Slip:" in ts:
+                ts = ts.split(" (Slip:")[0].strip()
+            elif " (" in ts:
+                ts = ts.split(" (")[0].strip()
+            elif " - " in ts:
+                ts = ts.split(" - ")[0].strip()
+            return tc, ts
+
+        def resolve_trip_sheet_no(raw_ts):
+            raw = (raw_ts or "").strip()
+            if not raw:
+                return ""
+            if raw.upper().startswith("TS/"):
+                return raw
+            # Check among known master trip sheets
+            for s in master_trip_sheets:
+                clean_s = s.split(" (Slip:")[0].strip() if " (Slip:" in s else s.split(" - ")[0].strip()
+                if clean_s.endswith(f"/{raw}") or clean_s.endswith(f"/{raw.zfill(3)}") or clean_s == raw:
+                    return clean_s
+            # Fallback using current season prefix
+            season_field = self.form_fields.get("season")
+            season_val = season_field.currentText() if season_field else ""
+            prefix = self._trip_sheet_prefix_for_season(season_val)
+            return f"{prefix}{raw}"
+
+        def update_trip_sheets_for_tc(tc):
+            clean_tc = tc.split(" - ")[0].strip() if " - " in tc else tc.strip()
+            matching_sheets = []
+            if clean_tc:
+                for item in all_trip_sheet_details:
+                    c_val = str(item.get("transporter_contract") or "").strip()
+                    c_name = str(item.get("transporter_name") or "").strip()
+                    s_name = str(item.get("name") or "").strip()
+                    s_slip = item.get("slip_no")
+                    if (clean_tc.lower() in c_val.lower() or clean_tc.lower() in c_name.lower()) and s_name:
+                        display = f"{s_name} (Slip: {s_slip})" if s_slip else s_name
+                        matching_sheets.append(display)
+
+            if matching_sheets:
+                unique_sheets = sorted(list(set(matching_sheets)))
+                ts_combo.set_items(unique_sheets, preserve_text=True)
+            elif not clean_tc:
+                unique_sheets = sorted(list(set(master_trip_sheets)))
+                ts_combo.set_items(unique_sheets, preserve_text=True)
+
+        def fetch_filter_options(selected_tc="", preserve_current=True):
+            nonlocal master_contracts, master_trip_sheets, all_trip_sheet_details
+            try:
+                base_site_url = (self.primary_frappe_site_url or "").rstrip("/")
+                url = f"{base_site_url}/api/method/quantbit_agriculture_crm.exe_api.get_trip_sheet_filter_options"
+                params = {}
+                clean_tc = selected_tc.split(" - ")[0].strip() if " - " in selected_tc else selected_tc.strip()
+                if clean_tc:
+                    params["transporter_contract"] = clean_tc
+                headers = {"Accept": "application/json"}
+                resp = self.primary_frappe_session.get(url, params=params, headers=headers, timeout=20)
+                resp.raise_for_status()
+                data = resp.json().get("message", {})
+                if data.get("success"):
+                    contracts = data.get("transporter_contract_options") or data.get("transporter_contracts", [])
+                    trip_sheets = data.get("trip_sheet_options") or data.get("trip_sheets", [])
+                    details = data.get("trip_sheet_details", [])
+
+                    if contracts and (not master_contracts or not clean_tc):
+                        master_contracts = contracts
+                        tc_combo.set_items(master_contracts, preserve_text=preserve_current)
+
+                    if not clean_tc:
+                        master_trip_sheets = trip_sheets
+                        all_trip_sheet_details = details
+                        ts_combo.set_items(trip_sheets, preserve_text=preserve_current)
+                    else:
+                        ts_combo.set_items(trip_sheets, preserve_text=preserve_current)
+
+                    self.output.append(f"[Slip Details Report] Loaded filter options: {len(contracts)} contracts, {len(trip_sheets)} trip sheets.")
+                else:
+                    self.output.append(f"[Slip Details Report] API response success=False: {data}")
+            except Exception as ex:
+                self.output.append(f"[Slip Details Report] Failed to fetch filter options: {str(ex)}")
+
+        def execute_report(is_auto=False):
+            auto_load_timer.stop()
+            tc, ts = get_clean_filter_values()
+
+            params = {}
+            if tc:
+                params["transporter_contract"] = tc
+            if ts:
+                params["trip_sheet_no"] = ts
+
+            try:
+                base_site_url = (self.primary_frappe_site_url or "").rstrip("/")
+                url = f"{base_site_url}/api/method/quantbit_agriculture_crm.exe_api.get_auto_token_trip_sheets"
+                self.output.append(f"[Slip Details Report] Fetching records: {url} | params={params}")
+                headers = {"Accept": "application/json"}
+                resp = self.primary_frappe_session.get(url, params=params, headers=headers, timeout=20)
+                resp.raise_for_status()
+                res_data = resp.json().get("message", {})
+                sheets = res_data.get("trip_sheets") or res_data.get("sheets") or []
+                populate_table(sheets)
+                token_no = res_data.get("auto_token_no") or res_data.get("auto_token") or ""
+                extra = f"Auto Token: {token_no} | " if token_no else ""
+                record_count_label.setText(f"{extra}Count: {len(sheets)}")
+            except requests.exceptions.HTTPError as he:
+                populate_table([])
+                err_text = he.response.text if he.response is not None else str(he)
+                record_count_label.setText("Error fetching records")
+                if not is_auto:
+                    QMessageBox.warning(dialog, "Error", f"Failed to fetch records:\n{err_text}")
+            except Exception as ex:
+                populate_table([])
+                record_count_label.setText("Error fetching records")
+                if not is_auto:
+                    QMessageBox.warning(dialog, "Error", f"An error occurred:\n{str(ex)}")
+
+        def schedule_auto_load():
+            auto_load_timer.stop()
+            auto_load_timer.start()
+
+        auto_load_timer.timeout.connect(lambda: execute_report(is_auto=True))
+
+        def on_tc_changed():
+            tc, _ = get_clean_filter_values()
+            update_trip_sheets_for_tc(tc)
+            if tc:
+                fetch_filter_options(selected_tc=tc, preserve_current=True)
+            schedule_auto_load()
+
+        tc_debounce_timer.timeout.connect(on_tc_changed)
+
+        if tc_combo.lineEdit():
+            tc_combo.lineEdit().textEdited.connect(lambda _: tc_debounce_timer.start())
+            tc_combo.lineEdit().returnPressed.connect(lambda: (on_tc_changed(), schedule_auto_load()))
+        tc_combo.activated.connect(lambda _: (on_tc_changed(), schedule_auto_load()))
+
+        if ts_combo.lineEdit():
+            ts_combo.lineEdit().textEdited.connect(lambda _: schedule_auto_load())
+            ts_combo.lineEdit().returnPressed.connect(lambda: execute_report(is_auto=False))
+        ts_combo.activated.connect(lambda _: execute_report(is_auto=False))
+
+        load_options_btn.clicked.connect(lambda: fetch_filter_options(selected_tc="", preserve_current=False))
+        apply_filter_btn.clicked.connect(lambda: execute_report(is_auto=False))
+
+        def reset_filters():
+            auto_load_timer.stop()
+            tc_debounce_timer.stop()
+            tc_combo.clear_selection()
+            ts_combo.clear_selection()
+            if master_contracts:
+                tc_combo.set_items(master_contracts, preserve_text=False)
+            if master_trip_sheets:
+                ts_combo.set_items(master_trip_sheets, preserve_text=False)
+            execute_report(is_auto=True)
+
+        clear_filter_btn.clicked.connect(reset_filters)
+
+        def load_selected_record():
+            selected_rows = table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.warning(dialog, "Selection Required", "Please select a record from the table to load into Cane Weight.")
+                return
+            row = selected_rows[0].row()
+            ts_item = table.item(row, 0)
+            if not ts_item or not ts_item.text().strip():
+                QMessageBox.warning(dialog, "Invalid Selection", "Selected record is missing a Trip Sheet number.")
+                return
+            trip_sheet_name = ts_item.text().strip()
+
+            tc_item = table.item(row, 9)
+            tc_name = tc_item.text().strip() if tc_item else ""
+
+            dialog.accept()
+
+            if "trip_sheet" in self.form_fields and hasattr(self.form_fields["trip_sheet"], "setText"):
+                self.form_fields["trip_sheet"].setText(trip_sheet_name)
+            if tc_name and "transporter_contract" in self.form_fields and hasattr(self.form_fields["transporter_contract"], "setText"):
+                self.form_fields["transporter_contract"].setText(tc_name)
+
+            self.output.append(f"[Slip Details Report] Selected Trip Sheet: {trip_sheet_name}. Fetching Cane Weight data...")
+            self.fetch_cane_weight_data_from_trip_sheet_no()
+
+        table.itemDoubleClicked.connect(lambda _: load_selected_record())
+
+        # Pre-populate from current form fields if present
+        cur_tc = ""
+        cur_ts = ""
+        if "transporter_contract" in self.form_fields:
+            w = self.form_fields["transporter_contract"]
+            if hasattr(w, "text"):
+                cur_tc = w.text().strip()
+        if "trip_sheet" in self.form_fields:
+            w = self.form_fields["trip_sheet"]
+            if hasattr(w, "text"):
+                cur_ts = w.text().strip()
+
+        # Load options initially (load all master contracts and trip sheets first)
+        fetch_filter_options(selected_tc="", preserve_current=False)
+        if cur_tc:
+            tc_combo.setCurrentText(cur_tc)
+            update_trip_sheets_for_tc(cur_tc)
+        if cur_ts:
+            ts_combo.setCurrentText(cur_ts)
+
+        execute_report(is_auto=True)
+
+        # Bottom buttons
+        button_layout = QHBoxLayout()
+        load_btn = QPushButton("📥 Load Selected into Cane Weight")
+        load_btn.setStyleSheet(
+            "QPushButton { background-color: #059669; color: white; font-weight: bold; border-radius: 4px; padding: 7px 18px; font-size: 13px; } "
+            "QPushButton:hover { background-color: #047857; } "
+            "QPushButton:pressed { background-color: #065f46; }"
+        )
+        load_btn.clicked.connect(load_selected_record)
+
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet(
+            "QPushButton { background-color: #64748b; color: white; font-weight: bold; border-radius: 4px; padding: 7px 18px; font-size: 13px; } "
+            "QPushButton:hover { background-color: #475569; } "
+            "QPushButton:pressed { background-color: #334155; }"
+        )
+        close_btn.clicked.connect(dialog.reject)
+
+        button_layout.addStretch()
+        button_layout.addWidget(load_btn)
+        button_layout.addWidget(close_btn)
+        dialog_layout.addLayout(button_layout)
+
+        dialog.exec()
+
 
 
     # RFID Connection Methods
@@ -9059,72 +10175,63 @@ class LoginPage(QWidget):
         self.setLayout(layout)
 
     def load_logo_icon(self):
-        """Load the logo image from URL and create a QIcon for the window."""
-        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
-        logo_pixmap = QPixmap()
+        """Load the logo image (local asset, base64, or URL) and create a QIcon for the window."""
+        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        if pixmap and not pixmap.isNull():
+            return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         
-        try:
-            response = requests.get(logo_url)
-            response.raise_for_status()  # Raise error for bad status codes
-            if logo_pixmap.loadFromData(response.content):
-                # Scale for icon (window icons are small; 32x32 or 64x64 works well)
-                logo_pixmap = logo_pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                icon = QIcon(logo_pixmap)
-                return icon
-            else:
-                raise ValueError("Failed to load pixmap from data")
-        except Exception as e:
-            # Fallback: Create a simple colored icon with text "QT" (Quantbit)
-            fallback_pixmap = QPixmap(64, 64)
-            fallback_pixmap.fill(QColor("#667eea"))  # Blue background
-            # painter = QPainter(fallback_pixmap)
-            # painter.setPen(QColor("white"))
-            # painter.setFont(QFont("Arial", 24, QFont.Bold))
-            # painter.drawText(fallback_pixmap.rect(), Qt.AlignCenter, "QT")
-            # painter.end()
-            fallback_icon = QIcon(fallback_pixmap)
-            
-            # Log error if output is available
-            if hasattr(self, 'output'):
-                self.output.append(f"[Window Icon] Failed to load logo from {logo_url}: {str(e)}. Using fallback icon.")
-            
-            return fallback_icon
+        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
+        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=logo_url)
+        if pixmap and not pixmap.isNull():
+            return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+        fallback_pixmap = QPixmap(64, 64)
+        fallback_pixmap.fill(QColor("#dc2626"))
+        return QIcon(fallback_pixmap)
 
     def setup_styles(self):
         self.setStyleSheet("""
             QWidget {
-                background-color: #f0f2f5;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                background-color: #f8fafc;
+                color: #1e293b;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            }
+            QLabel {
+                color: #334155;
+                font-size: 11px;
+                font-weight: 600;
             }
             #titleLabel {
-                color: #2c3e50;
-                font-size: 20px;
-                font-weight: bold;
-                margin-bottom: 15px;
+                color: #0f172a;
+                font-size: 17px;
+                font-weight: 700;
+                margin-bottom: 12px;
             }
             QLineEdit {
-                padding: 8px;
-                border: 1px solid #cccccc;
-                border-radius: 5px;
-                font-size: 11px;
-            }
-            QLineEdit:focus {
-                border-color: #3498db;
-            }
-            QPushButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                font-weight: bold;
+                padding: 7px 10px;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                background-color: #ffffff;
+                color: #0f172a;
                 font-size: 12px;
             }
+            QLineEdit:focus {
+                border: 1.5px solid #2563eb;
+            }
+            QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                padding: 9px 20px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 13px;
+            }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #1d4ed8;
             }
             QPushButton:pressed {
-                background-color: #21618c;
+                background-color: #1e40af;
             }
         """)
     

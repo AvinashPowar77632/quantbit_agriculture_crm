@@ -51,12 +51,16 @@
   "vehicle_no",
   "trolly_1",
   "trolly_2",
+  "trolly_trailer_1",
+  "trolly_trailer_2",
   "section_break_usrt",
   "ht_driver",
   "column_break_ewgm",
   "ht_driver_name",
   "column_break_wzjq",
-  "cart_no",
+  "cart_no_1",
+  "column_break_wvao",
+  "cart_no_2",
   "harvester_details_section",
   "harvester_name",
   "harvester_vehicle_type",
@@ -369,11 +373,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "cart_no",
-   "fieldtype": "Int",
-   "label": "Cart No"
-  },
-  {
    "fieldname": "harvester_details_section",
    "fieldtype": "Section Break",
    "label": "Harvester Details"
@@ -537,12 +536,36 @@
    "fieldtype": "Data",
    "label": "Trip Sheet",
    "read_only": 1
+  },
+  {
+   "fieldname": "trolly_trailer_1",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 1"
+  },
+  {
+   "fieldname": "trolly_trailer_2",
+   "fieldtype": "Data",
+   "label": "Trolly Trailer 2"
+  },
+  {
+   "fieldname": "cart_no_1",
+   "fieldtype": "Data",
+   "label": "Cart No 1"
+  },
+  {
+   "fieldname": "column_break_wvao",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cart_no_2",
+   "fieldtype": "Data",
+   "label": "Cart No 2"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-20 11:01:25.008712",
+ "modified": "2026-09-29 10:10:25.976738",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Trip Sheet",
