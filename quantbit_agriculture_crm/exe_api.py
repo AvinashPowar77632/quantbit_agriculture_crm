@@ -133,7 +133,9 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["cart_no_1"] = t.get("cart_no_1")
     data_key["cart_no_2"] = t.get("cart_no_2")
     data_key["trolly_trailer_1"] = t.get("trolly_trailer_1")
+    data_key["trolly_trailer_1_ll_name"] = t.get("trolly_trailer_1_ll_name")
     data_key["trolly_trailer_2"] = t.get("trolly_trailer_2")
+    data_key["trolly_trailer_2_ll_name"] = t.get("trolly_trailer_2_ll_name")
     data_key["harvester_name"] = t.harvester_name
     data_key["harvester_vehicle_type"] = t.harvester_vehicle_type
     data_key["harvester_gang_type"] = t.harvester_gang_type
@@ -803,6 +805,8 @@ def sync_trip_sheets():
 
         for ts in trip_sheets:
             ts["trip_sheet"] = ts.name
+            ts["trolly_trailer_1_ll_name"] = frappe.db.get_value("Trolly Sub Rope Placement",ts.get("trolly_trailer_1"),"ll_name")
+            ts["trolly_trailer_2_ll_name"] = frappe.db.get_value("Trolly Sub Rope Placement",ts.get("trolly_trailer_2"),"ll_name")
 
             # Add Auto Token details
             token_parent = frappe.db.get_value(

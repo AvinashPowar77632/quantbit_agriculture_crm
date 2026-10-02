@@ -137,6 +137,7 @@
   "transporter_vehicle_type_ll_name",
   "harvester_vehicle_type_ll_name",
   "farmer_deduction_type",
+  "trolly_trailer_1_ll_name",
   "column_break_wxlt",
   "cane_deduction_type_ll_name",
   "rope_placement_ll_name",
@@ -144,6 +145,7 @@
   "transporter_gang_type_ll_name",
   "harvester_gang_type_ll_name",
   "ht_driver_ll_name",
+  "trolly_trailer_2_ll_name",
   "additional_info_section",
   "dcp",
   "is_harvester_final_billing",
@@ -981,13 +983,25 @@
    "fieldname": "farmer_deduction_type",
    "fieldtype": "Data",
    "label": "Farmer Deduction Type"
+  },
+  {
+   "fetch_from": "trip_sheet.trolly_trailer_1_ll_name",
+   "fieldname": "trolly_trailer_1_ll_name",
+   "fieldtype": "Data",
+   "label": "trolly_trailer_1_ll_name"
+  },
+  {
+   "fetch_from": "trip_sheet.trolly_trailer_2_ll_name",
+   "fieldname": "trolly_trailer_2_ll_name",
+   "fieldtype": "Data",
+   "label": "trolly_trailer_2_ll_name"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-02 11:45:13.070740",
+ "modified": "2026-10-02 13:50:52.603135",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Cane Weight",
