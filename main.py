@@ -1315,7 +1315,7 @@ class MainWindow(QWidget):
             "transporter_vehicle_type", "transporter_gang_type", "vehicle_no",
             "trolly_1", "trolly_2", "trolly_trailer_1", "trolly_trailer_2",
             "cart_no_1", "cart_no_2", "ht_driver", "harvester_name",
-            "harvester_vehicle_type", "harvester_gang_type", "cane_deduction_type",
+            "harvester_vehicle_type", "harvester_gang_type", "farmer_deduction_type", "cane_deduction_type",
             "deduction", "water_share", "rope_placement",
             "auto_token_no", "token_user", "token_no",
             # Weight Information - present when this trip sheet already has a saved
@@ -1766,6 +1766,9 @@ class MainWindow(QWidget):
 
     def _fields_deduction_details(self):
         """Deduction Details' fields."""
+        farmer_deduction_type_edit = QLineEdit()
+        self.form_fields["farmer_deduction_type"] = farmer_deduction_type_edit
+
         cane_deduction_type_edit = QLineEdit()
         self.form_fields["cane_deduction_type"] = cane_deduction_type_edit
 
@@ -1790,6 +1793,7 @@ class MainWindow(QWidget):
         self.form_fields["dcp"] = dcp_check
 
         return [
+            ("Farmer Deduction Type", farmer_deduction_type_edit),
             ("Cane Deduction Type", cane_deduction_type_edit),
             ("Deduction (%)", deduction_edit),
             ("Water Share (%)", water_share_edit),
@@ -4225,7 +4229,7 @@ class MainWindow(QWidget):
     
         try:
             self.trip_sheet_status_label.setText("Status: Fetching trip sheets...")
-            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","trolly_trailer_1","trolly_trailer_2","cart_no_1","cart_no_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","rope_placement"]'
+            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","trolly_trailer_1","trolly_trailer_2","cart_no_1","cart_no_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","farmer_deduction_type","rope_placement"]'
             url = f"{self.trip_sheet_frappe_site_url}/api/resource/Trip Sheet?fields={fields}&limit_page_length=200"
             response = self.trip_sheet_frappe_session.get(url)
             response.raise_for_status()
@@ -4465,30 +4469,29 @@ class MainWindow(QWidget):
             return None
 
         try:
-            # Search for Cane Weight document by slip_no
+            # Search for Cane Weight document by slip_no across Cane Weight and Cane Weight History
             filters = [["trip_sheet", "=", str(slip_no)]]
-            fields = '["*"]' # Fetch all fields
-            url = f"{self.primary_frappe_site_url}/api/resource/Cane Weight?filters={json.dumps(filters)}&fields={fields}&limit_page_length=1"
-            
-            self.output.append(f"[Cane Weight Fetch Debug] Querying for slip_no: {slip_no}")
-            self.output.append(f"[Cane Weight Fetch Debug] Constructed URL: {url}")
-            self.output.append(f"[Cane Weight Fetch Debug] Filters used: {json.dumps(filters)}")
-            
-            response = self.primary_frappe_session.get(url)
-            response.raise_for_status()
-            response_json = response.json()
-            data = response_json.get('data', [])
-            
-            self.output.append(f"[Cane Weight Fetch Debug] Raw API Response: {json.dumps(response_json, indent=2)}")
+            fields = '["*"]'  # Fetch all fields
 
-            if data:
-                self.output.append(f"[Cane Weight Fetch] Found existing Cane Weight document for slip_no {slip_no}.")
-                return data[0] # Return the first matching document
-            else:
-                warning_msg = f"No existing Cane Weight document found for slip_no {slip_no}.\n\nDebug Info:\nURL: {url}\nFilters: {json.dumps(filters)}\nResponse: {json.dumps(response_json, indent=2)}"
-                self.output.append(f"[Cane Weight Fetch] {warning_msg}")
-                QMessageBox.information(self, "Cane Weight Fetch Info", warning_msg)
-                return None
+            for doctype in ["Cane Weight", "Cane Weight History"]:
+                url = f"{self.primary_frappe_site_url}/api/resource/{quote(doctype)}?filters={json.dumps(filters)}&fields={fields}&limit_page_length=1"
+                self.output.append(f"[Cane Weight Fetch Debug] Querying for slip_no: {slip_no} in {doctype}")
+                try:
+                    response = self.primary_frappe_session.get(url)
+                    if response.status_code == 200:
+                        response_json = response.json()
+                        data = response_json.get('data', [])
+                        if data:
+                            self.output.append(f"[Cane Weight Fetch] Found existing {doctype} document for slip_no {slip_no}.")
+                            doc_found = data[0]
+                            doc_found["doctype"] = doctype
+                            return doc_found
+                except requests.exceptions.RequestException:
+                    continue
+
+            warning_msg = f"No existing Cane Weight document found for slip_no {slip_no}."
+            self.output.append(f"[Cane Weight Fetch] {warning_msg}")
+            return None
         except requests.exceptions.RequestException as e:
             error_msg = f"[Cane Weight Fetch Error] Failed to fetch Cane Weight document: {e}"
             self.output.append(error_msg)
@@ -4508,18 +4511,27 @@ class MainWindow(QWidget):
 
         try:
             encoded_name = quote(doc_name)
-            url = f"{self.primary_frappe_site_url}/api/resource/Cane Weight/{encoded_name}"
             headers = {"Accept": "application/json"}
-            self.output.append(f"[Cane Weight Records] Loading document: {doc_name} ({url})")
+            record = None
 
-            response = self.primary_frappe_session.get(url, headers=headers, timeout=20)
-            response.raise_for_status()
-            payload = response.json()
-            record = payload.get("data") if isinstance(payload, dict) else None
+            # Try Cane Weight History first, then Cane Weight
+            for doctype in ["Cane Weight History", "Cane Weight"]:
+                url = f"{self.primary_frappe_site_url}/api/resource/{quote(doctype)}/{encoded_name}"
+                self.output.append(f"[Cane Weight Records] Loading document: {doc_name} from {doctype} ({url})")
+                try:
+                    response = self.primary_frappe_session.get(url, headers=headers, timeout=20)
+                    if response.status_code == 200:
+                        payload = response.json()
+                        record = payload.get("data") if isinstance(payload, dict) else None
+                        if record:
+                            record["doctype"] = doctype
+                            break
+                except requests.exceptions.RequestException:
+                    continue
 
             if not record:
                 QMessageBox.warning(self, "Not Found", f"Unable to load Cane Weight document '{doc_name}'.")
-                self.output.append(f"[Cane Weight Records] Document '{doc_name}' returned empty response.")
+                self.output.append(f"[Cane Weight Records] Document '{doc_name}' not found in Cane Weight History or Cane Weight.")
                 return False
 
             self.current_cane_weight_doc = record
@@ -5278,6 +5290,7 @@ class MainWindow(QWidget):
             transporter_name = self.form_fields.get("transporter_name").text() if self.form_fields.get("transporter_name") else ""
             harvester_name = self.form_fields.get("harvester_name").text() if self.form_fields.get("harvester_name") else ""
             harvester_ht_code = self.form_fields.get("harvester_ht_code").text() if self.form_fields.get("harvester_ht_code") else ""
+            farmer_deduction_type = self.form_fields.get("farmer_deduction_type").text() if self.form_fields.get("farmer_deduction_type") else ""
             cane_deduction_type = self.form_fields.get("cane_deduction_type").text() if self.form_fields.get("cane_deduction_type") else ""
 
             # Get penalty charges table
@@ -5297,7 +5310,7 @@ class MainWindow(QWidget):
                 penalty_table.setItem(row, 1, self._make_penalty_readonly_item(farmer_code))  # Entity Code
                 penalty_table.setItem(row, 2, self._make_penalty_readonly_item(farmer_name))  # Entity Name
                 penalty_table.setItem(row, 3, self._make_penalty_readonly_item("Farmer"))  # Entity Type
-                penalty_table.setItem(row, 4, QTableWidgetItem(cane_deduction_type or ""))  # Deduction Type
+                penalty_table.setItem(row, 4, QTableWidgetItem(farmer_deduction_type or cane_deduction_type or ""))  # Deduction Type
                 penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo("Percentage"))  # Deduction Method
                 penalty_table.setItem(row, 6, QTableWidgetItem("0"))  # Deduction Rate
                 penalty_table.setItem(row, 7, QTableWidgetItem(""))  # Debit Account
@@ -6720,6 +6733,7 @@ class MainWindow(QWidget):
             payload["slip_boy_name"] = form_data.get("slip_boy_name") or ""
 
             # Deduction fields
+            payload["farmer_deduction_type"] = form_data.get("farmer_deduction_type") or ""
             payload["cane_deduction_type"] = form_data.get("cane_deduction_type") or ""
             payload["deduction"] = float(form_data.get("deduction", 0)) if form_data.get("deduction") else 0.0
             payload["water_share"] = float(form_data.get("water_share", 0)) if form_data.get("water_share") else 0.0
@@ -7079,9 +7093,10 @@ class MainWindow(QWidget):
             )
             return
 
-        self._open_cane_weight_print_view(doc_name)
+        doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight History"
+        self._open_cane_weight_print_view(doc_name, doctype=doctype)
 
-    def _open_cane_weight_print_view(self, doc_name):
+    def _open_cane_weight_print_view(self, doc_name, doctype=None):
         """Open the Frappe Print View for the given Cane Weight document name in
         the default browser (shared by the Print button/Ctrl+P and the per-row
         Print buttons in the View Submitted Records dialog)."""
@@ -7089,9 +7104,12 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Warning", "Primary Frappe site URL is not configured.")
             return
 
+        if not doctype:
+            doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight History"
+
         base_url = self.primary_frappe_site_url.rstrip("/")
         params = {
-            "doctype": "Cane Weight",
+            "doctype": doctype,
             "name": doc_name,
             "trigger_print": "1",
             "format": "Cane Weight pf",
@@ -7103,7 +7121,7 @@ class MainWindow(QWidget):
         query = "&".join(f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in params.items())
         url = f"{base_url}/printview?{query}"
 
-        self.output.append(f"[Print] Opening Print View for Cane Weight '{doc_name}': {url}")
+        self.output.append(f"[Print] Opening Print View for {doctype} '{doc_name}': {url}")
         QDesktopServices.openUrl(QUrl(url))
     
     def add_fuel_sale_item_row(self):
@@ -9002,6 +9020,8 @@ class MainWindow(QWidget):
             self.form_fields['cart_no_1'].setText(str(doc['cart_no_1'] or ""))
         if 'cart_no_2' in doc and 'cart_no_2' in self.form_fields:
             self.form_fields['cart_no_2'].setText(str(doc['cart_no_2'] or ""))
+        if 'farmer_deduction_type' in doc and 'farmer_deduction_type' in self.form_fields:
+            self.form_fields['farmer_deduction_type'].setText(str(doc['farmer_deduction_type'] or ""))
         if 'transporter_gang_type' in doc:
             self.form_fields['transporter_gang_type'].setText(doc['transporter_gang_type'])
         if 'harvester' in doc:
@@ -9294,7 +9314,7 @@ class MainWindow(QWidget):
         try:
             fields = [
                 "name", "season", "branch", "trip_sheet", "farmer_name",
-                "vehicle_no", "net_weight", "modified"
+                "vehicle_no", "net_weight", "remark", "modified"
             ]
 
             def fetch_records(trip_sheet_filter=""):
@@ -9303,7 +9323,7 @@ class MainWindow(QWidget):
                     clean_ts = trip_sheet_filter.strip()
                     req_filters.append(["trip_sheet", "like", f"%{clean_ts}%"])
 
-                resource = quote("Cane Weight")
+                resource = quote("Cane Weight History")
                 params = {
                     "filters": json.dumps(req_filters),
                     "fields": json.dumps(fields),
@@ -9312,22 +9332,23 @@ class MainWindow(QWidget):
                 }
                 url = f"{self.primary_frappe_site_url}/api/resource/{resource}"
                 headers = {"Accept": "application/json"}
-                self.output.append(f"[Cane Weight Records] Fetching submitted records: {url} | params={params}")
+                self.output.append(f"[Cane Weight History Records] Fetching submitted records: {url} | params={params}")
 
+                records = []
                 try:
                     response = self.primary_frappe_session.get(url, params=params, headers=headers, timeout=20)
                     response.raise_for_status()
-                    return response.json().get("data", [])
+                    records = response.json().get("data", [])
                 except requests.exceptions.HTTPError as primary_error:
                     primary_response = primary_error.response
                     status = primary_response.status_code if primary_response is not None else "N/A"
                     text = primary_response.text if primary_response is not None else "No response text"
                     self.output.append(
-                        f"[Cane Weight Records] Primary fetch failed with HTTP {status}: {text}"
+                        f"[Cane Weight History Records] Primary fetch failed with HTTP {status}: {text}"
                     )
 
                     fallback_payload = {
-                        "doctype": "Cane Weight",
+                        "doctype": "Cane Weight History",
                         "filters": req_filters,
                         "fields": fields,
                         "order_by": "modified desc",
@@ -9339,7 +9360,7 @@ class MainWindow(QWidget):
                         "Content-Type": "application/json",
                     }
                     self.output.append(
-                        f"[Cane Weight Records] Falling back to frappe.client.get_list via {fallback_url}"
+                        f"[Cane Weight History Records] Falling back to frappe.client.get_list via {fallback_url}"
                     )
                     fallback_response = self.primary_frappe_session.post(
                         fallback_url,
@@ -9349,11 +9370,40 @@ class MainWindow(QWidget):
                     )
                     fallback_response.raise_for_status()
                     fallback_json = fallback_response.json()
-                    return fallback_json.get("message") or fallback_json.get("data") or []
+                    records = fallback_json.get("message") or fallback_json.get("data") or []
+
+                for r in records:
+                    r["_source_doctype"] = "Cane Weight History"
+
+                # Also include any local submitted Cane Weight records not yet moved to history
+                try:
+                    cw_filters = [["docstatus", "=", 1]]
+                    if trip_sheet_filter:
+                        cw_filters.append(["trip_sheet", "like", f"%{trip_sheet_filter.strip()}%"])
+                    cw_fields = [f for f in fields if f != "remark"]
+                    cw_params = {
+                        "filters": json.dumps(cw_filters),
+                        "fields": json.dumps(cw_fields),
+                        "limit_page_length": 100,
+                        "order_by": "modified desc",
+                    }
+                    cw_url = f"{self.primary_frappe_site_url}/api/resource/Cane%20Weight"
+                    cw_resp = self.primary_frappe_session.get(cw_url, params=cw_params, headers=headers, timeout=10)
+                    if cw_resp.status_code == 200:
+                        cw_data = cw_resp.json().get("data", [])
+                        existing_names = {r.get("name") for r in records}
+                        for r in cw_data:
+                            if r.get("name") not in existing_names:
+                                r["_source_doctype"] = "Cane Weight"
+                                records.append(r)
+                except Exception as e:
+                    self.output.append(f"[Cane Weight Records] Note: Could not fetch un-synced cane weights: {e}")
+
+                return records
 
             initial_data = fetch_records("")
             if not initial_data:
-                QMessageBox.information(self, "No Records", "No submitted Cane Weight records were found.")
+                QMessageBox.information(self, "No Records", "No submitted Cane Weight History records were found.")
                 self.output.append("[Cane Weight Records] No submitted records returned.")
                 return
 
@@ -9437,10 +9487,10 @@ class MainWindow(QWidget):
 
             # Table for records
             table = QTableWidget()
-            table.setColumnCount(len(fields) + 1)
+            table.setColumnCount(10)
             table.setHorizontalHeaderLabels([
                 "Name", "Season", "Branch", "Trip Sheet", "Farmer",
-                "Vehicle Number", "Cane Weight", "Modified", "Print"
+                "Vehicle Number", "Cane Weight", "Remark", "Modified", "Print"
             ])
             table.setSelectionMode(QAbstractItemView.SingleSelection)
             table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -9456,9 +9506,11 @@ class MainWindow(QWidget):
             header.setSectionResizeMode(4, QHeaderView.Stretch)
             header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
             header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(8, QHeaderView.Fixed)
-            table.setColumnWidth(8, 85)
+            header.setSectionResizeMode(7, QHeaderView.Interactive)
+            header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(9, QHeaderView.Fixed)
+            table.setColumnWidth(7, 220)
+            table.setColumnWidth(9, 85)
 
             all_records = list(initial_data)
 
@@ -9472,7 +9524,8 @@ class MainWindow(QWidget):
                     table.setItem(row, 4, QTableWidgetItem(str(record.get("farmer_name", ""))))
                     table.setItem(row, 5, QTableWidgetItem(str(record.get("vehicle_no", ""))))
                     table.setItem(row, 6, QTableWidgetItem(str(record.get("net_weight", ""))))
-                    table.setItem(row, 7, QTableWidgetItem(str(record.get("modified", ""))))
+                    table.setItem(row, 7, QTableWidgetItem(str(record.get("remark") or "")))
+                    table.setItem(row, 8, QTableWidgetItem(str(record.get("modified", ""))))
 
                     print_btn = QPushButton("Print")
                     print_btn.setStyleSheet(
@@ -9482,10 +9535,11 @@ class MainWindow(QWidget):
                         "QPushButton:pressed { background-color: #CC7000; }"
                     )
                     record_name = str(record.get("name", "")).strip()
+                    doctype_name = record.get("_source_doctype") or "Cane Weight History"
                     print_btn.clicked.connect(
-                        lambda _checked=False, n=record_name: self._open_cane_weight_print_view(n)
+                        lambda _checked=False, n=record_name, dt=doctype_name: self._open_cane_weight_print_view(n, doctype=dt)
                     )
-                    table.setCellWidget(row, 8, print_btn)
+                    table.setCellWidget(row, 9, print_btn)
 
             def apply_filter(fetch_server_if_missing=True):
                 query = trip_sheet_filter_combo.currentText().strip()

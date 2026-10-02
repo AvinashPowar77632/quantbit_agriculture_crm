@@ -522,8 +522,18 @@ def sync_cane_weight_to_remote():
             for field, value in doc_dict.items():
                 if field not in ("name", "moved"):
                     history_doc.set(field, value)
+
+            history_doc.is_sync = 1
+            history_doc.moved = 1
+            history_doc.docstatus = 1
+            sync_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            site_names = ", ".join(s.name for s in sites)
+            sync_log = f"Cane Weight {doc.name} synced to remote ({site_names}) and moved to Cane Weight History on {sync_time}"
+            existing_remark = doc_dict.get("remark") or ""
+            history_doc.remark = f"{existing_remark}\n{sync_log}".strip() if existing_remark else sync_log
+
             history_doc.insert(ignore_permissions=True)
-            _log("Cane Weight Sync", f"Inserted {doc.name} into Cane Weight History")
+            _log("Cane Weight Sync", f"Inserted {doc.name} into Cane Weight History with remark: {sync_log}")
 
             doc.db_set("moved", 1, update_modified=False)
             _log("Cane Weight Sync", f"Marked {doc.name} as moved (moved=1)")

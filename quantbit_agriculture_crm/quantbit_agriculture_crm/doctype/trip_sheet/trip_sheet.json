@@ -85,6 +85,7 @@
   "section_break_uwuk",
   "slip_boy",
   "json",
+  "farmer_deduction_type",
   "column_break_yogz",
   "slip_boy_name",
   "auto_token_no",
@@ -560,12 +561,17 @@
    "fieldname": "cart_no_2",
    "fieldtype": "Data",
    "label": "Cart No 2"
+  },
+  {
+   "fieldname": "farmer_deduction_type",
+   "fieldtype": "Data",
+   "label": "Farmer Deduction Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-29 10:10:25.976738",
+ "modified": "2026-10-02 11:40:42.495137",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Trip Sheet",

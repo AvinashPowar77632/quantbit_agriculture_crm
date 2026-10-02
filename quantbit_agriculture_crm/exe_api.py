@@ -137,6 +137,17 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["harvester_name"] = t.harvester_name
     data_key["harvester_vehicle_type"] = t.harvester_vehicle_type
     data_key["harvester_gang_type"] = t.harvester_gang_type
+    farmer_ded_type = t.get("farmer_deduction_type")
+    if not farmer_ded_type and penalty_charges:
+        for row in penalty_charges:
+            if row.get("entity_type") == "Farmer" and row.get("deduction_type"):
+                farmer_ded_type = frappe.db.get_value(
+                    "Deduction Type",
+                    row.get("deduction_type"),
+                    "ll_name"
+                ) or row.get("deduction_type")
+                break
+    data_key["farmer_deduction_type"] = farmer_ded_type or ""
     data_key["cane_deduction_type"] = t.cane_deduction_type
     data_key["deduction"] = t.deduction
     data_key["water_supplier_code"] = t.water_supplier_code
@@ -175,6 +186,7 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["penalty_charges"] = []
     
     for penalty_charge in penalty_charges:
+
         data_key["penalty_charges"].append({
             "entity_code": penalty_charge.entity_code,
             "entity_name": penalty_charge.entity_name,
@@ -491,6 +503,11 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
 
             data["binding_weight_percent"] = get_binding_weight_percentage(cw_doc.transporter_vehicle_type) or 1
 
+            if not data.get("farmer_deduction_type") and cw_doc.trip_sheet:
+                data["farmer_deduction_type"] = frappe.db.get_value(
+                    "Trip Sheet", cw_doc.trip_sheet, "farmer_deduction_type"
+                ) or ""
+
             status = "Draft" if cw_doc.docstatus == 0 else "Submitted"
 
         else:
@@ -785,6 +802,7 @@ def sync_trip_sheets():
 
         for ts in trip_sheets:
             ts["trip_sheet"] = ts.name
+
             # Add Auto Token details
             token_parent = frappe.db.get_value(
                 "Auto Token Trip sheet Details",
@@ -794,26 +812,36 @@ def sync_trip_sheets():
             token = frappe.db.get_value(
                 "Auto Token",
                 {"name": token_parent},
-                ["name", "token_no", "posting_time", "posting_date","creator"],
+                ["name", "token_no", "posting_time", "posting_date", "creator"],
                 as_dict=True
             )
-            penalty_charges = frappe.db.sql("""SELECT
-                                *
-                            FROM 
-                                `tabTrip Sheet Penalty Charges`
-                            WHERE 
-                                parent = %s
-                        """, (ts.name,), as_dict=True)
+
+            penalty_charges = frappe.db.sql("""
+                SELECT *
+                FROM `tabTrip Sheet Penalty Charges`
+                WHERE parent = %s
+            """, (ts.name,), as_dict=True)
 
             if penalty_charges:
                 ts["penalty_charges"] = penalty_charges
-            
+
+                # farmer_deduction_type from the row where entity_type is Farmer
+                if not ts.get("farmer_deduction_type"):
+                    for row in penalty_charges:
+                        if row.get("entity_type") == "Farmer" and row.get("deduction_type"):
+                            ts["farmer_deduction_type"] = frappe.db.get_value(
+                                "Deduction Type",
+                                row.get("deduction_type"),
+                                "ll_name"
+                            ) or row.get("deduction_type")
+                            break
+
             if token:
                 ts["auto_token_no"] = token.name
                 ts["token_no"] = token.token_no
                 ts["token_date"] = token.posting_date
                 ts["token_time"] = token.posting_time
-                ts["token_user"]= token.creator
+                ts["token_user"] = token.creator
 
             # Remove unwanted fields
             for field in clean_fields:
@@ -901,6 +929,7 @@ def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, ca
         "cane_registration",
         "transporter_contract", "transporter", "transporter_name",
         "harvester_contract", "harvester", "harvester_name",
+        "farmer_deduction_type",
         "vehicle_no"
     ]
 

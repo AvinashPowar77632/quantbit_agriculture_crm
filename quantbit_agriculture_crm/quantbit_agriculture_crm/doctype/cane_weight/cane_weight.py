@@ -99,14 +99,14 @@ class CaneWeight(Document):
 	def on_submit(self):
 		self.on_submit_status_change()
 	
-	def on_cancel(self):
-		self.on_cancel_status_change()
+	# def on_cancel(self):
+	# 	self.on_cancel_status_change()
 	
-	def on_cancel_status_change(self):
-		trip_id= [self.trip_sheet]
-		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Submitted Token")
-		if flt(self.diesel_allocation) > 0:
-			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=0)
+	# def on_cancel_status_change(self):
+	# 	trip_id= [self.trip_sheet]
+	# 	status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Submitted Token")
+	# 	if flt(self.diesel_allocation) > 0:
+	# 		status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=0)
 
 	def on_submit_status_change(self):
 		trip_id= [self.trip_sheet]

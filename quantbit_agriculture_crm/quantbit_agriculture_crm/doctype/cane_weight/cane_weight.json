@@ -136,6 +136,7 @@
   "water_supplier_ll_name",
   "transporter_vehicle_type_ll_name",
   "harvester_vehicle_type_ll_name",
+  "farmer_deduction_type",
   "column_break_wxlt",
   "cane_deduction_type_ll_name",
   "rope_placement_ll_name",
@@ -974,13 +975,19 @@
    "fieldname": "cart_no_2",
    "fieldtype": "Data",
    "label": "Cart No 2"
+  },
+  {
+   "fetch_from": "trip_sheet.farmer_deduction_type",
+   "fieldname": "farmer_deduction_type",
+   "fieldtype": "Data",
+   "label": "Farmer Deduction Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-29 10:11:53.831224",
+ "modified": "2026-10-02 11:45:13.070740",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Cane Weight",

@@ -396,9 +396,23 @@ def sync_cane_weight_to_remote():
                         for field in doc_dict:
                             if field not in ["name", "moved"]:
                                 history_doc.set(field, doc_dict.get(field))
+
+                        history_doc.is_sync = 1
+                        history_doc.moved = 1
+                        history_doc.docstatus = 1
+                        if not history_doc.farmer_deduction_type and doc.get("trip_sheet"):
+                            history_doc.farmer_deduction_type = frappe.db.get_value(
+                                "Trip Sheet", doc.trip_sheet, "farmer_deduction_type"
+                            ) or ""
+
+                        sync_time = frappe.utils.now()
+                        site_names = ", ".join(s.name for s in sites)
+                        sync_log = f"Cane Weight {doc.name} synced to remote ({site_names}) and moved to Cane Weight History on {sync_time}"
+                        existing_remark = doc_dict.get("remark") or ""
+                        history_doc.remark = f"{existing_remark}\n{sync_log}".strip() if existing_remark else sync_log
                         
                         history_doc.insert(ignore_permissions=True)
-                        frappe.log_error("History Insert", f"Inserted {doc.name} into Cane Weight History")
+                        frappe.log_error("History Insert", f"Inserted {doc.name} into Cane Weight History with remark: {sync_log}")
                         
                         # Mark as moved
                         doc.moved = 1
