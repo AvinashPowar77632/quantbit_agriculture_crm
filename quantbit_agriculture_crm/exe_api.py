@@ -182,6 +182,7 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["circle_office_ll_name"] = ll_names.get("circle_office_ll_name")
     data_key["route_ll_name"] = ll_names.get("route_ll_name")
     data_key["harvester_ll_name"] = ll_names.get("harvester_ll_name")
+    data_key["village_ll_name"] = ll_names.get("village_ll_name")
     data_key["transporter_gang_type_ll_name"] = ll_names.get("transporter_gang_type_ll_name")
     data_key["penalty_charges"] = []
     
