@@ -1218,7 +1218,7 @@ class MainWindow(QWidget):
             # An existing Draft/Submitted doc's real name (data["name"], from
             # get_cane_weight_data's is_exists branch) - needed by
             # print_cane_weight_form(). A brand new trip sheet has none yet.
-            self.current_cane_weight_doc = {"name": data.get("name")} if data.get("name") else None
+            self.current_cane_weight_doc = {"name": data.get("name"), "doctype": "Cane Weight"} if data.get("name") else None
             self.output.append(f"[Cane Weight API] {status_text} (doc_status={doc_status}) - form populated from {full_trip_sheet_no}")
             QMessageBox.information(self, "Success", f"{status_text or 'Cane Weight form populated'} from Trip Sheet {full_trip_sheet_no}")
 
@@ -1333,7 +1333,7 @@ class MainWindow(QWidget):
             "soil_type_ll_name", "seed_type_ll_name", "irrigation_method_ll_name",
             "crop_variety_ll_name", "farmer_ll_name", "transporter_ll_name",
             "cane_deduction_type_ll_name", "rope_placement_ll_name", "harvester_ll_name",
-            "ht_driver_ll_name",
+            "ht_driver_ll_name", "trolly_trailer_1_ll_name", "trolly_trailer_2_ll_name",
             # Field Slip tab
             "slip_boy_name",
             # Fuel fields
@@ -1736,8 +1736,14 @@ class MainWindow(QWidget):
         trolly_trailer_1_edit = QLineEdit()
         self.form_fields["trolly_trailer_1"] = trolly_trailer_1_edit
 
+        self._detail_trolly_1_ll = QLineEdit()
+        self._detail_trolly_1_ll.setReadOnly(True)
+
         trolly_trailer_2_edit = QLineEdit()
         self.form_fields["trolly_trailer_2"] = trolly_trailer_2_edit
+
+        self._detail_trolly_2_ll = QLineEdit()
+        self._detail_trolly_2_ll.setReadOnly(True)
 
         cart_no_1_edit = QLineEdit()
         self.form_fields["cart_no_1"] = cart_no_1_edit
@@ -1758,7 +1764,9 @@ class MainWindow(QWidget):
             ("Trolly 1", trolly_1_edit),
             ("Trolly 2", trolly_2_edit),
             ("Trolly Trailer 1", trolly_trailer_1_edit),
+            ("Trolly Trailer 1 LL Name", self._detail_trolly_1_ll),
             ("Trolly Trailer 2", trolly_trailer_2_edit),
+            ("Trolly Trailer 2 LL Name", self._detail_trolly_2_ll),
             ("Cart No 1", cart_no_1_edit),
             ("Cart No 2", cart_no_2_edit),
             ("Rope Placement", rope_placement_edit),
@@ -2015,19 +2023,30 @@ class MainWindow(QWidget):
         details_grid.setHorizontalSpacing(16)
         details_grid.setVerticalSpacing(8)
 
+        village_ll_name_edit = field("village_ll_name", read_only=True)
         farmer_ll_name_edit = field("farmer_ll_name", read_only=True)
         rope_placement_ll_name_edit = field("rope_placement_ll_name", read_only=True)
+        trolly_trailer_1_ll_name_edit = field("trolly_trailer_1_ll_name", read_only=True)
+        trolly_trailer_2_ll_name_edit = field("trolly_trailer_2_ll_name", read_only=True)
 
         highlight_style = (
             "font-size: 13px; font-weight: bold; color: #dc2626; "
             "background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 4px 6px;"
         )
+        village_ll_name_edit.setStyleSheet(highlight_style)
         farmer_ll_name_edit.setStyleSheet(highlight_style)
         rope_placement_ll_name_edit.setStyleSheet(highlight_style)
+        trolly_trailer_1_ll_name_edit.setStyleSheet(highlight_style)
+        trolly_trailer_2_ll_name_edit.setStyleSheet(highlight_style)
+
+        if hasattr(self, "_detail_trolly_1_ll") and self._detail_trolly_1_ll is not None:
+            trolly_trailer_1_ll_name_edit.textChanged.connect(self._detail_trolly_1_ll.setText)
+        if hasattr(self, "_detail_trolly_2_ll") and self._detail_trolly_2_ll is not None:
+            trolly_trailer_2_ll_name_edit.textChanged.connect(self._detail_trolly_2_ll.setText)
 
         details_fields = [
             ("Route", field("route_ll_name", read_only=True)),
-            ("Village", field("village_ll_name", read_only=True)),
+            ("Village", village_ll_name_edit),
             ("Crop Type", field("crop_type_ll_name", read_only=True)),
             ("Circle Office", field("circle_office_ll_name", read_only=True)),
             ("Farmer", farmer_ll_name_edit),
@@ -2035,6 +2054,8 @@ class MainWindow(QWidget):
             ("Harvester", field("harvester_ll_name", read_only=True)),
             ("HT Driver", field("ht_driver_ll_name", read_only=True)),
             ("Rope Placement", rope_placement_ll_name_edit),
+            ("Trolly Trailer 1", trolly_trailer_1_ll_name_edit),
+            ("Trolly Trailer 2", trolly_trailer_2_ll_name_edit),
         ]
         for idx, (label, widget) in enumerate(details_fields):
             row = idx // 3
@@ -2043,7 +2064,8 @@ class MainWindow(QWidget):
             lbl.setStyleSheet("font-weight: 600; color: #475569;")
             details_grid.addWidget(lbl, row, col)
             details_grid.addWidget(widget, row, col + 1)
-            details_grid.setColumnStretch(col + 1, 1)
+        for c in (1, 3, 5):
+            details_grid.setColumnStretch(c, 1)
 
         details_layout.addLayout(details_grid)
         content_layout.addWidget(details_group)
@@ -4229,7 +4251,7 @@ class MainWindow(QWidget):
     
         try:
             self.trip_sheet_status_label.setText("Status: Fetching trip sheets...")
-            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","trolly_trailer_1","trolly_trailer_2","cart_no_1","cart_no_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","farmer_deduction_type","rope_placement"]'
+            fields = '["name","season","branch","posting_date","cane_registration","crop_variety","route","farmer","crop_type","distance","is_flat_rate","farmer_name","area_in_acrs","circle_office","survey_number","is_kisan_card","transporter_contract","transporter","transporter_name","vehicle_no","transporter_vehicle_type","trolly_1","trolly_2","trolly_trailer_1","trolly_trailer_2","cart_no_1","cart_no_2","transporter_gang_type","harvester_contract","harvester","harvester_name","harvester_vehicle_type","harvester_gang_type","farmer_deduction_type","rope_placement","trolly_trailer_1_ll_name","trolly_trailer_2_ll_name"]'
             url = f"{self.trip_sheet_frappe_site_url}/api/resource/Trip Sheet?fields={fields}&limit_page_length=200"
             response = self.trip_sheet_frappe_session.get(url)
             response.raise_for_status()
@@ -6771,7 +6793,7 @@ class MainWindow(QWidget):
                 "soil_type_ll_name", "seed_type_ll_name", "irrigation_method_ll_name",
                 "crop_variety_ll_name", "farmer_ll_name", "transporter_ll_name",
                 "cane_deduction_type_ll_name", "rope_placement_ll_name", "harvester_ll_name",
-                "ht_driver_ll_name",
+                "ht_driver_ll_name", "trolly_trailer_1_ll_name", "trolly_trailer_2_ll_name",
             ):
                 payload[ll_field] = form_data.get(ll_field) or ""
         except Exception as e:
@@ -6981,7 +7003,7 @@ class MainWindow(QWidget):
         else:
             # Remember this doc so we can show/track it if needed - the backend no
             # longer needs it from us though, it always looks up by trip_sheet itself.
-            self.current_cane_weight_doc = {"name": doc_name}
+            self.current_cane_weight_doc = {"name": doc_name, "doctype": "Cane Weight"}
             # A successful Save creates/updates the Draft (docstatus 0) - Submit
             # is the only action left for it. A successful Submit finalizes it
             # (docstatus 1) - neither Save nor Submit applies to it anymore.
@@ -7093,10 +7115,11 @@ class MainWindow(QWidget):
             )
             return
 
-        doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight History"
-        self._open_cane_weight_print_view(doc_name, doctype=doctype)
+        doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight"
+        print_format = "Cane Weight pf" if doctype == "Cane Weight" else "Cane Weight History pf"
+        self._open_cane_weight_print_view(doc_name, doctype=doctype, print_format=print_format)
 
-    def _open_cane_weight_print_view(self, doc_name, doctype=None):
+    def _open_cane_weight_print_view(self, doc_name, doctype=None, print_format=None):
         """Open the Frappe Print View for the given Cane Weight document name in
         the default browser (shared by the Print button/Ctrl+P and the per-row
         Print buttons in the View Submitted Records dialog)."""
@@ -7105,14 +7128,20 @@ class MainWindow(QWidget):
             return
 
         if not doctype:
-            doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight History"
+            doctype = (self.current_cane_weight_doc or {}).get("doctype") or "Cane Weight"
+
+        if not print_format:
+            if doctype == "Cane Weight History":
+                print_format = "Cane Weight History pf"
+            else:
+                print_format = "Cane Weight pf"
 
         base_url = self.primary_frappe_site_url.rstrip("/")
         params = {
             "doctype": doctype,
             "name": doc_name,
             "trigger_print": "1",
-            "format": "Cane Weight pf",
+            "format": print_format,
             "no_letterhead": "0",
             "letterhead": "Internal Letter Head",
             "settings": "{}",
@@ -7121,7 +7150,7 @@ class MainWindow(QWidget):
         query = "&".join(f"{quote(k, safe='')}={quote(v, safe='')}" for k, v in params.items())
         url = f"{base_url}/printview?{query}"
 
-        self.output.append(f"[Print] Opening Print View for {doctype} '{doc_name}': {url}")
+        self.output.append(f"[Print] Opening Print View for {doctype} '{doc_name}' with format '{print_format}': {url}")
         QDesktopServices.openUrl(QUrl(url))
     
     def add_fuel_sale_item_row(self):
@@ -9016,6 +9045,10 @@ class MainWindow(QWidget):
             self.form_fields['trolly_trailer_1'].setText(str(doc['trolly_trailer_1'] or ""))
         if 'trolly_trailer_2' in doc and 'trolly_trailer_2' in self.form_fields:
             self.form_fields['trolly_trailer_2'].setText(str(doc['trolly_trailer_2'] or ""))
+        if 'trolly_trailer_1_ll_name' in doc and 'trolly_trailer_1_ll_name' in self.form_fields:
+            self.form_fields['trolly_trailer_1_ll_name'].setText(str(doc['trolly_trailer_1_ll_name'] or ""))
+        if 'trolly_trailer_2_ll_name' in doc and 'trolly_trailer_2_ll_name' in self.form_fields:
+            self.form_fields['trolly_trailer_2_ll_name'].setText(str(doc['trolly_trailer_2_ll_name'] or ""))
         if 'cart_no_1' in doc and 'cart_no_1' in self.form_fields:
             self.form_fields['cart_no_1'].setText(str(doc['cart_no_1'] or ""))
         if 'cart_no_2' in doc and 'cart_no_2' in self.form_fields:
@@ -9536,8 +9569,9 @@ class MainWindow(QWidget):
                     )
                     record_name = str(record.get("name", "")).strip()
                     doctype_name = record.get("_source_doctype") or "Cane Weight History"
+                    print_format_name = "Cane Weight History pf" if doctype_name == "Cane Weight History" else "Cane Weight pf"
                     print_btn.clicked.connect(
-                        lambda _checked=False, n=record_name, dt=doctype_name: self._open_cane_weight_print_view(n, doctype=dt)
+                        lambda _checked=False, n=record_name, dt=doctype_name, pf=print_format_name: self._open_cane_weight_print_view(n, doctype=dt, print_format=pf)
                     )
                     table.setCellWidget(row, 9, print_btn)
 
