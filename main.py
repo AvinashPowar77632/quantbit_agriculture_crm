@@ -583,6 +583,7 @@ class MainWindow(QWidget):
         self._refresh_posting_datetime_now()
         self._gross_weight_captured = False
         self._tare_weight_captured = False
+        self._is_existing_cane_weight = False
         # Binding Weight % for the current trip sheet's vehicle type - set from
         # Get Data's "binding_weight_percent" (see _populate_cane_weight_form_from_exe_api)
         self._cane_weight_binding_percent = 1
@@ -1168,7 +1169,10 @@ class MainWindow(QWidget):
 
     def _tick_posting_datetime(self):
         """Called every second. Keeps Posting Date/Time locked to the live system
-        clock unless the operator ticked 'Edit Posting Date & Time' to override them."""
+        clock unless the operator ticked 'Edit Posting Date & Time' to override them,
+        or an existing entry is loaded (which preserves its original saved datetime)."""
+        if getattr(self, "_is_existing_cane_weight", False):
+            return
         edit_checkbox = self.form_fields.get("edit")
         if edit_checkbox is not None and edit_checkbox.isChecked():
             return
@@ -1204,7 +1208,7 @@ class MainWindow(QWidget):
     def _on_edit_posting_datetime_toggled(self, state):
         """'Edit Posting Date & Time' checkbox: unchecked (default) = fields are
         locked to the live clock; checked = operator can manually set a backdated
-        Posting Date/Time. Turning it back off snaps the fields back to 'now'."""
+        Posting Date/Time. Turning it back off snaps the fields back to 'now' (if new entry)."""
         edit_checkbox = self.form_fields.get("edit")
         editable = bool(edit_checkbox.isChecked()) if edit_checkbox is not None else False
         posting_date = self.form_fields.get("posting_date")
@@ -1213,7 +1217,7 @@ class MainWindow(QWidget):
         posting_time = self.form_fields.get("posting_time")
         if posting_time is not None:
             posting_time.setEnabled(editable)
-        if not editable:
+        if not editable and not getattr(self, "_is_existing_cane_weight", False):
             self._refresh_posting_datetime_now()
 
     def _default_weight_bridge_users(self):
@@ -1328,7 +1332,9 @@ class MainWindow(QWidget):
                 QMessageBox.warning(self, "Not Found", status_text or f"No data found for Trip Sheet No.: {full_trip_sheet_no}")
                 return
 
-            self._populate_cane_weight_form_from_exe_api(data, full_trip_sheet_no)
+            is_existing = bool(doc_status in ("Draft", "Submitted") or data.get("name"))
+            self._is_existing_cane_weight = is_existing
+            self._populate_cane_weight_form_from_exe_api(data, full_trip_sheet_no, is_existing=is_existing)
             self._update_cane_weight_action_buttons(doc_status)
             # An existing Draft/Submitted doc's real name (data["name"], from
             # get_cane_weight_data's is_exists branch) - needed by
@@ -1370,11 +1376,18 @@ class MainWindow(QWidget):
             elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
                 widget.setValue(float(value) if value != "" else 0)
             elif isinstance(widget, QDateEdit):
-                date = QDate.fromString(str(value), "yyyy-MM-dd")
+                val_str = str(value).split(' ')[0].strip()
+                date = QDate.fromString(val_str, "yyyy-MM-dd")
                 if date.isValid():
                     widget.setDate(date)
             elif isinstance(widget, QTimeEdit):
-                time_val = QTime.fromString(str(value), "HH:mm:ss")
+                val_str = str(value).strip()
+                if " " in val_str:
+                    val_str = val_str.split(" ")[-1]
+                val_str = val_str.split(".")[0]
+                time_val = QTime.fromString(val_str, "HH:mm:ss")
+                if not time_val.isValid():
+                    time_val = QTime.fromString(val_str, "HH:mm")
                 if time_val.isValid():
                     widget.setTime(time_val)
             elif isinstance(widget, QLineEdit):
@@ -1420,10 +1433,11 @@ class MainWindow(QWidget):
         if diesel_widget is not None:
             diesel_widget.setText(str(total))
 
-    def _populate_cane_weight_form_from_exe_api(self, data, full_trip_sheet_no):
+    def _populate_cane_weight_form_from_exe_api(self, data, full_trip_sheet_no, is_existing=False):
         """Populate the Cane Weight form from a quantbit_agriculture_crm.exe_api.get_data
-        response. Posting Date/Time are deliberately never touched here - they always
-        track the live system clock (see _refresh_posting_datetime_now)."""
+        or get_cane_weight_data response. Token Date/Time are loaded as per the trip sheet.
+        Posting Date/Time are preserved from the existing entry if one exists; otherwise they
+        track the live system clock."""
         field_keys = [
             "company", "season", "branch", "shift", "season_day", "factory_day",
             "cane_registration", "crop_variety", "route", "farmer", "crop_type",
@@ -1434,16 +1448,14 @@ class MainWindow(QWidget):
             "trolly_1", "trolly_2", "trolly_trailer_1", "trolly_trailer_2",
             "cart_no_1", "cart_no_2", "ht_driver", "harvester_name",
             "harvester_vehicle_type", "harvester_gang_type", "farmer_deduction_type", "cane_deduction_type",
-            "deduction", "water_share", "rope_placement",
-            "auto_token_no", "token_user", "token_no",
+            "deduction", "water_share", "dcp", "rope_placement",
+            "auto_token_no", "token_user", "token_no", "token_date", "token_time",
             # Weight Information - present when this trip sheet already has a saved
             # draft Cane Weight entry (doc_status "Draft"), so re-fetching resumes it.
             "gross_weight", "gross_weight_bridge", "gross_weight_bridge_user",
             "tare_weight", "tare_weight_bridge", "tare_weight_bridge_user",
             "cane_weight", "binding_weight", "net_weight",
             "farmer_weight", "transporter_weight", "harvester_weight",
-            # token_date/token_time deliberately excluded - they always track the live
-            # system clock now, same as posting_date/posting_time (see _tick_token_datetime).
             # Local Language (LL) Name fields - Read Only, display-only.
             "village_ll_name", "route_ll_name", "sub_village_ll_name",
             "circle_office_ll_name", "taluka_ll_name", "district_ll_name",
@@ -1461,6 +1473,13 @@ class MainWindow(QWidget):
         for key in field_keys:
             if key in data:
                 self._set_form_field_value(key, data.get(key))
+
+        # Checkboxes default to unchecked if not explicitly returned in fetched data
+        for chk_key in ("edit", "is_flat_rate", "is_kisan_card", "dcp", "heavy_vehicle", "do_not_allow_fuel"):
+            if chk_key not in data:
+                chk = self.form_fields.get(chk_key)
+                if chk is not None:
+                    chk.setChecked(False)
 
         # Ensure Gross/Tare Weight Bridge default from Settings is maintained if empty
         self._default_weight_bridges(force=False)
@@ -1513,8 +1532,17 @@ class MainWindow(QWidget):
         # table directly instead of re-deriving them client-side.
         self._populate_penalty_charges_table_from_api(data.get("penalty_charges") or [])
 
-        # Posting Date/Time always track the live system clock - never from API data.
-        self._refresh_posting_datetime_now()
+        # Posting Date/Time: If this is an existing entry (Draft or Submitted Cane Weight),
+        # preserve the entry's original posting_date and posting_time and do not let the live
+        # system clock overwrite them. Otherwise (for a new entry / fresh trip sheet),
+        # posting_date and posting_time track the live system clock.
+        if is_existing:
+            if data.get("posting_date"):
+                self._set_form_field_value("posting_date", data.get("posting_date"))
+            if data.get("posting_time"):
+                self._set_form_field_value("posting_time", data.get("posting_time"))
+        else:
+            self._refresh_posting_datetime_now()
 
     def _populate_penalty_charges_table_from_api(self, penalty_rows):
         penalty_table = self.form_fields.get("penalty_charges")
@@ -1683,6 +1711,7 @@ class MainWindow(QWidget):
         self.form_fields["company"] = company_edit
 
         edit_check = QCheckBox()
+        edit_check.setChecked(False)
         self.form_fields["edit"] = edit_check
         edit_check.stateChanged.connect(self._on_edit_posting_datetime_toggled)
 
@@ -1745,6 +1774,7 @@ class MainWindow(QWidget):
         self.form_fields["route"] = route_edit
 
         is_flat_rate_check = QCheckBox()
+        is_flat_rate_check.setChecked(False)
         self.form_fields["is_flat_rate"] = is_flat_rate_check
 
         farmer_name_edit = QLineEdit()
@@ -1761,6 +1791,7 @@ class MainWindow(QWidget):
         self.form_fields["area_in_acrs"] = area_in_acrs_edit
 
         is_kisan_card_check = QCheckBox()
+        is_kisan_card_check.setChecked(False)
         self.form_fields["is_kisan_card"] = is_kisan_card_check
 
         circle_office_edit = QLineEdit()
@@ -2038,6 +2069,7 @@ class MainWindow(QWidget):
         get_data_btn.clicked.connect(self.fetch_cane_weight_data_from_trip_sheet_no)
 
         heavy_vehicle_check = QCheckBox("Heavy Vehicle")
+        heavy_vehicle_check.setChecked(False)
         self.form_fields["heavy_vehicle"] = heavy_vehicle_check
         heavy_vehicle_check.stateChanged.connect(self._recalculate_diesel_allocation)
 
@@ -2050,6 +2082,7 @@ class MainWindow(QWidget):
         diesel_allocation_edit.setMaximumWidth(90)
 
         do_not_allow_fuel_check = QCheckBox("Do Not Allow Fuel")
+        do_not_allow_fuel_check.setChecked(False)
         self.form_fields["do_not_allow_fuel"] = do_not_allow_fuel_check
 
         lookup_layout.addWidget(ts_lbl)
@@ -7251,11 +7284,13 @@ class MainWindow(QWidget):
 
         if clear_after:
             self.current_cane_weight_doc = None
+            self._is_existing_cane_weight = False
             self.clear_form()
         else:
             # Remember this doc so we can show/track it if needed - the backend no
             # longer needs it from us though, it always looks up by trip_sheet itself.
             self.current_cane_weight_doc = {"name": doc_name, "doctype": "Cane Weight"}
+            self._is_existing_cane_weight = True
             # A successful Save creates/updates the Draft (docstatus 0) - Submit
             # is the only action left for it. A successful Submit finalizes it
             # (docstatus 1) - neither Save nor Submit applies to it anymore.
@@ -7312,9 +7347,11 @@ class MainWindow(QWidget):
             elif isinstance(widget, QSpinBox):
                 widget.setValue(0)
             elif isinstance(widget, QCheckBox):
-                widget.setChecked(True)
+                widget.setChecked(False)
             elif isinstance(widget, QDateEdit):
                 widget.setDate(datetime.now().date())
+            elif isinstance(widget, QTimeEdit):
+                widget.setTime(datetime.now().time())
             elif isinstance(widget, QDateTimeEdit):
                 widget.setDateTime(datetime.now())
             elif isinstance(widget, QTableWidget):
@@ -7325,12 +7362,15 @@ class MainWindow(QWidget):
         # setCurrentIndex(0) above resets Branch to its first combo item
         # ("Bedkihal") rather than the required default - put it back to Kundal.
         self.form_fields["branch"].setCurrentText("Kundal")
-        # The generic QCheckBox branch above checks every checkbox, including
-        # this print-only flag - a fresh/new entry should default to fuel
-        # being allowed on the printed slip, so uncheck it back.
-        do_not_allow_fuel_check = self.form_fields.get("do_not_allow_fuel")
-        if do_not_allow_fuel_check is not None:
-            do_not_allow_fuel_check.setChecked(False)
+        company_field = self.form_fields.get("company")
+        if company_field is not None:
+            company_field.setText("KRANTIAGRANI DR G D BAPU LAD SAHAKARI SAKHAR KARKHANA LIMITED KUNDAL")
+        # All Cane Weight checkboxes default to unchecked (False) for a clean entry
+        for chk_key in ("edit", "is_flat_rate", "is_kisan_card", "dcp", "heavy_vehicle", "do_not_allow_fuel"):
+            chk = self.form_fields.get(chk_key)
+            if chk is not None:
+                chk.setChecked(False)
+        self._is_existing_cane_weight = False
         self._refresh_posting_datetime_now()  # posting_date/time always live, not blank
         self._default_weight_bridge_users()  # weight bridge users default to logged-in user
         self._default_weight_bridges(force=True)  # GW and TW Bridge default to configured Settings

@@ -159,13 +159,17 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     data_key["rope_placement"] = t.rope_placement
     data_key["slip_boy"] = t.slip_boy
     data_key["slip_boy_name"] = t.slip_boy_name 
-    data_key["token_time"] = t.token_time or auto_token_details.get("token_time") if auto_token_details else None
-    data_key["auto_token_no"] = t.auto_token_no or auto_token_details.get("auto_token_no") if auto_token_details else None
-    data_key["token_date"] = t.token_date or auto_token_details.get("token_date") if auto_token_details else None
-    data_key["token_user"] = t.token_user or auto_token_details.get("token_user") if auto_token_details else None
-    data_key["token_no"] = t.token_no or auto_token_details.get("token_no") if auto_token_details else None
+    auto_token = auto_token_details or {}
+    token_time = t.token_time or auto_token.get("token_time")
+    token_date = t.token_date or auto_token.get("token_date")
+    data_key["token_time"] = str(token_time) if token_time else None
+    data_key["auto_token_no"] = t.auto_token_no or auto_token.get("auto_token_no") or None
+    data_key["token_date"] = str(token_date) if token_date else None
+    data_key["token_user"] = t.token_user or auto_token.get("token_user") or None
+    data_key["token_no"] = t.token_no or auto_token.get("token_no") or None
 
     data_key["rope_placement_ll_name"] = ll_names.get("rope_placement_ll_name")
+    data_key["ht_driver_ll_name"] = ll_names.get("ht_driver_ll_name")
     data_key["seed_type_ll_name"] = ll_names.get("seed_type_ll_name")
     data_key["taluka_ll_name"] = ll_names.get("taluka_ll_name")
     data_key["cane_deduction_type_ll_name"] = ll_names.get("cane_deduction_type_ll_name")
@@ -511,6 +515,22 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                 data["farmer_deduction_type"] = frappe.db.get_value(
                     "Trip Sheet", cw_doc.trip_sheet, "farmer_deduction_type"
                 ) or ""
+
+            # Ensure posting and token dates/times are serialized cleanly
+            for dt_field in ("posting_date", "posting_time", "token_date", "token_time"):
+                if data.get(dt_field) is not None:
+                    data[dt_field] = str(data[dt_field])
+
+            # If token_date or token_time were not stored on the Cane Weight doc, fallback to trip sheet
+            if (not data.get("token_date") or not data.get("token_time")) and cw_doc.trip_sheet:
+                ts_token = frappe.db.get_value(
+                    "Trip Sheet", cw_doc.trip_sheet, ["token_date", "token_time"], as_dict=True
+                )
+                if ts_token:
+                    if not data.get("token_date") and ts_token.get("token_date"):
+                        data["token_date"] = str(ts_token["token_date"])
+                    if not data.get("token_time") and ts_token.get("token_time"):
+                        data["token_time"] = str(ts_token["token_time"])
 
             status = "Draft" if cw_doc.docstatus == 0 else "Submitted"
 
