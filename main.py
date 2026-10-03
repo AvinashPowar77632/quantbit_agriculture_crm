@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     QThread, Signal, Qt, QTimer, QDate, QDateTime, QTime, QUrl,
-    QSortFilterProxyModel,
+    QSortFilterProxyModel, QSettings,
 )
 from PySide6.QtGui import (
     QFont, QPalette, QColor, QIcon, QPixmap, QDoubleValidator, QTextCursor,
@@ -33,47 +33,87 @@ import base64
 try:
     from assets_data import KRANTI_LOGO_B64, QUANTBIT_LOGO_B64
 except Exception:
-    KRANTI_LOGO_B64 = ""
-    QUANTBIT_LOGO_B64 = ""
+    try:
+        from quantbit_agriculture_crm.assets_data import KRANTI_LOGO_B64, QUANTBIT_LOGO_B64
+    except Exception:
+        KRANTI_LOGO_B64 = ""
+        QUANTBIT_LOGO_B64 = ""
+
+KRANTI_LOGO_URL = "https://raw.githubusercontent.com/AvinashPowar77632/quantbit_agriculture_crm/main/assets/kranti_sugar_logo.png"
+QUANTBIT_LOGO_URL = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
 
 def get_local_or_remote_pixmap(filename, fallback_b64=None, remote_url=None):
     """Load pixmap from local asset path, embedded base64, or remote URL (in priority order)."""
-    pixmap = QPixmap()
-    
-    # 1. Try local filesystem (development, installed, or PyInstaller bundle)
-    candidate_paths = []
+    # 1. Determine candidate filenames (including common extensions and variations)
+    base_name, _ = os.path.splitext(filename)
+    candidate_names = [filename]
+    if "kranti" in base_name.lower():
+        candidate_names = [
+            "kranti_sugar_logo.png",
+            "kranti_sugar_logo.ico",
+            "kranti_sugar_logo.jpg",
+            "kranti_sugar_logo_256.png",
+            "kranti_sugar_logo_cropped.png",
+        ]
+    elif "quantbit" in base_name.lower():
+        candidate_names = [
+            "quantbit_logo.png",
+            "quantbit_logo.jpg",
+            "quantbit_logo.jpeg",
+        ]
+    if filename not in candidate_names:
+        candidate_names.insert(0, filename)
+
+    # 2. Try local filesystem (PyInstaller bundle, script dir, cwd)
+    base_dirs = []
     if hasattr(sys, '_MEIPASS'):
-        candidate_paths.append(os.path.join(sys._MEIPASS, "assets", filename))
-        candidate_paths.append(os.path.join(sys._MEIPASS, filename))
-        candidate_paths.append(os.path.join(sys._MEIPASS, "public", "images", filename))
+        base_dirs.extend([
+            os.path.join(sys._MEIPASS, "assets"),
+            sys._MEIPASS,
+            os.path.join(sys._MEIPASS, "public", "images"),
+            os.path.join(sys._MEIPASS, "quantbit_agriculture_crm", "public", "images"),
+        ])
     
     script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-    candidate_paths.append(os.path.join(script_dir, "assets", filename))
-    candidate_paths.append(os.path.join(script_dir, "quantbit_agriculture_crm", "public", "images", filename))
-    candidate_paths.append(os.path.join(script_dir, filename))
-    candidate_paths.append(os.path.join(os.getcwd(), "assets", filename))
-    candidate_paths.append(os.path.join(os.getcwd(), filename))
+    base_dirs.extend([
+        os.path.join(script_dir, "assets"),
+        os.path.join(script_dir, "quantbit_agriculture_crm", "public", "images"),
+        os.path.join(script_dir, "public", "images"),
+        script_dir,
+        os.path.join(os.getcwd(), "assets"),
+        os.path.join(os.getcwd(), "quantbit_agriculture_crm", "public", "images"),
+        os.getcwd(),
+    ])
 
-    for path in candidate_paths:
-        if os.path.isfile(path):
-            if pixmap.load(path) and not pixmap.isNull():
-                return pixmap
+    for bdir in base_dirs:
+        for cname in candidate_names:
+            full_path = os.path.join(bdir, cname)
+            if os.path.isfile(full_path):
+                pixmap = QPixmap()
+                if pixmap.load(full_path) and not pixmap.isNull():
+                    return pixmap
 
-    # 2. Try embedded base64 string (ensures logo appears offline even without files)
+    # 3. Try embedded base64 string (ensures logo appears offline even without files)
     if fallback_b64:
         try:
             data = base64.b64decode(fallback_b64)
+            pixmap = QPixmap()
             if pixmap.loadFromData(data) and not pixmap.isNull():
                 return pixmap
+            for fmt in ("PNG", "JPG", "JPEG", "ICO"):
+                if pixmap.loadFromData(data, fmt) and not pixmap.isNull():
+                    return pixmap
         except Exception:
             pass
 
-    # 3. Try remote URL with short timeout as fallback
+    # 4. Try remote URL with short timeout as fallback
     if remote_url:
         try:
-            resp = requests.get(remote_url, timeout=3)
-            if resp.status_code == 200 and pixmap.loadFromData(resp.content) and not pixmap.isNull():
-                return pixmap
+            resp = requests.get(remote_url, timeout=4)
+            if resp.status_code == 200 and len(resp.content) > 0:
+                pixmap = QPixmap()
+                if pixmap.loadFromData(resp.content) and not pixmap.isNull():
+                    return pixmap
         except Exception:
             pass
 
@@ -514,10 +554,16 @@ class MainWindow(QWidget):
         self.third_to_primary_auto_sync_timer.timeout.connect(self.sync_third_to_primary_data)
         self.third_to_primary_auto_sync_enabled = False # Will be controlled by a checkbox
         
+        # Load Weighbridge Settings (GW Bridge and TW Bridge)
+        self.load_weighbridge_settings()
+
         # Set up the UI
         self.setup_ui()
         self.setup_styles()
         self.setWindowIcon(self.load_logo_icon())
+
+        # Ensure Cane Weight form fields have the loaded default weighbridge settings
+        self._default_weight_bridges(force=True)
         
         # Start RFID connection in a separate thread
         QTimer.singleShot(500, self.start_rfid_connection_thread)  # Delay to ensure UI is ready
@@ -606,12 +652,11 @@ class MainWindow(QWidget):
 
     def load_logo_icon(self):
         """Load the logo image (local asset, base64, or URL) and create a QIcon for the window."""
-        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64, remote_url=KRANTI_LOGO_URL)
         if pixmap and not pixmap.isNull():
             return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         
-        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
-        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=logo_url)
+        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=QUANTBIT_LOGO_URL)
         if pixmap and not pixmap.isNull():
             return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
@@ -704,7 +749,7 @@ class MainWindow(QWidget):
         kranti_logo_label = QLabel()
         kranti_logo_label.setFixedSize(40, 40)
         kranti_logo_label.setAlignment(Qt.AlignCenter)
-        kranti_pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        kranti_pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64, remote_url=KRANTI_LOGO_URL)
         if kranti_pixmap and not kranti_pixmap.isNull():
             kranti_logo_label.setPixmap(kranti_pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             kranti_logo_label.setStyleSheet("border: none; background: transparent;")
@@ -752,8 +797,7 @@ class MainWindow(QWidget):
         quantbit_logo_label = QLabel()
         quantbit_logo_label.setFixedSize(40, 40)
         quantbit_logo_label.setAlignment(Qt.AlignCenter)
-        qb_remote_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
-        qb_pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=qb_remote_url)
+        qb_pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=QUANTBIT_LOGO_URL)
         if qb_pixmap and not qb_pixmap.isNull():
             quantbit_logo_label.setPixmap(qb_pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             quantbit_logo_label.setStyleSheet("border: none; background: transparent;")
@@ -926,9 +970,52 @@ class MainWindow(QWidget):
         settings_header = QLabel("⚙️  Application Settings")
         settings_header.setStyleSheet("font-size: 18px; font-weight: 700; color: #2c3e50; background: transparent;")
         layout.addWidget(settings_header)
-        settings_subheader = QLabel("Serial/hardware options and the RFID reader.")
+        settings_subheader = QLabel("Weighbridge selection, serial/hardware options and the RFID reader.")
         settings_subheader.setStyleSheet("color: #7f8c8d; font-size: 11px; background: transparent;")
         layout.addWidget(settings_subheader)
+
+        # Weighbridge Selection Settings Group (GW Bridge and TW Bridge)
+        wb_group = QGroupBox("⚖️  Weighbridge Selection Settings")
+        wb_group.setObjectName("weighbridgeSettingsGroup")
+        wb_layout = QGridLayout(wb_group)
+        wb_layout.setContentsMargins(14, 18, 14, 14)
+        wb_layout.setHorizontalSpacing(14)
+        wb_layout.setVerticalSpacing(12)
+
+        wb_options = [f"Weight Bridge {i}" for i in range(1, 10)]
+
+        gw_lbl = QLabel("Default GW Bridge (Gross):")
+        gw_lbl.setStyleSheet("font-weight: 600; color: #1e293b;")
+        wb_layout.addWidget(gw_lbl, 0, 0)
+        self.gw_bridge_setting_combo = QComboBox()
+        self.gw_bridge_setting_combo.addItems(wb_options)
+        if getattr(self, "gw_bridge_setting", "Weight Bridge 1") in wb_options:
+            self.gw_bridge_setting_combo.setCurrentText(self.gw_bridge_setting)
+        wb_layout.addWidget(self.gw_bridge_setting_combo, 0, 1)
+
+        tw_lbl = QLabel("Default TW Bridge (Tare):")
+        tw_lbl.setStyleSheet("font-weight: 600; color: #1e293b;")
+        wb_layout.addWidget(tw_lbl, 0, 2)
+        self.tw_bridge_setting_combo = QComboBox()
+        self.tw_bridge_setting_combo.addItems(wb_options)
+        if getattr(self, "tw_bridge_setting", "Weight Bridge 1") in wb_options:
+            self.tw_bridge_setting_combo.setCurrentText(self.tw_bridge_setting)
+        wb_layout.addWidget(self.tw_bridge_setting_combo, 0, 3)
+
+        save_wb_btn = QPushButton("💾  Save Weighbridge Settings")
+        save_wb_btn.setObjectName("saveWbBtn")
+        save_wb_btn.clicked.connect(lambda: self.save_weighbridge_settings(show_message=True))
+        wb_layout.addWidget(save_wb_btn, 1, 2, 1, 2, alignment=Qt.AlignRight)
+
+        # Auto-save immediately when user changes selection
+        self.gw_bridge_setting_combo.currentTextChanged.connect(
+            lambda val: self.save_weighbridge_settings(gw_bridge=val, show_message=False)
+        )
+        self.tw_bridge_setting_combo.currentTextChanged.connect(
+            lambda val: self.save_weighbridge_settings(tw_bridge=val, show_message=False)
+        )
+
+        layout.addWidget(wb_group)
 
         # Serial Settings Group
         serial_group = QGroupBox("🔌  Advanced Serial Settings")
@@ -1139,6 +1226,34 @@ class MainWindow(QWidget):
             if field is not None and not field.text().strip():
                 field.setText(username)
 
+    def _default_weight_bridges(self, force=False):
+        """Set Gross and Tare Weight Bridge fields on Cane Weight form to configured Settings.
+        If force=False, only sets when the field is empty or blank."""
+        gw_val = getattr(self, "gw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+        tw_val = getattr(self, "tw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+
+        gw_field = self.form_fields.get("gross_weight_bridge")
+        if gw_field is not None:
+            if isinstance(gw_field, QComboBox):
+                if force or not gw_field.currentText().strip():
+                    if gw_field.findText(gw_val) == -1 and gw_val:
+                        gw_field.addItem(gw_val)
+                    gw_field.setCurrentText(gw_val)
+            elif isinstance(gw_field, QLineEdit):
+                if force or not gw_field.text().strip():
+                    gw_field.setText(gw_val)
+
+        tw_field = self.form_fields.get("tare_weight_bridge")
+        if tw_field is not None:
+            if isinstance(tw_field, QComboBox):
+                if force or not tw_field.currentText().strip():
+                    if tw_field.findText(tw_val) == -1 and tw_val:
+                        tw_field.addItem(tw_val)
+                    tw_field.setCurrentText(tw_val)
+            elif isinstance(tw_field, QLineEdit):
+                if force or not tw_field.text().strip():
+                    tw_field.setText(tw_val)
+
     # ------------------------------------------------------------------
     # Cane Weight API integration (quantbit_agriculture_crm.exe_api.get_cane_weight_data)
     # ------------------------------------------------------------------
@@ -1240,6 +1355,9 @@ class MainWindow(QWidget):
         field doesn't exist on this form or the API didn't return a value for it."""
         widget = self.form_fields.get(field_key)
         if widget is None or value is None:
+            return
+        # If API returned blank for weighbridge, preserve configured setting default
+        if field_key in ("gross_weight_bridge", "tare_weight_bridge") and not str(value).strip():
             return
         try:
             if isinstance(widget, QCheckBox):
@@ -1343,6 +1461,9 @@ class MainWindow(QWidget):
         for key in field_keys:
             if key in data:
                 self._set_form_field_value(key, data.get(key))
+
+        # Ensure Gross/Tare Weight Bridge default from Settings is maintained if empty
+        self._default_weight_bridges(force=False)
 
         # Only the last trip sheet of an Auto Token gets diesel / extra fuel; the API flags
         # every other one as not allowed (absent = allowed).
@@ -2128,11 +2249,20 @@ class MainWindow(QWidget):
         gw_row = QHBoxLayout()
         gw_row.setSpacing(10)
         
+        wb_options = [f"Weight Bridge {i}" for i in range(1, 10)]
+
         gw_bridge_lbl = QLabel("GW Bridge:")
         gw_bridge_lbl.setStyleSheet("font-weight: 600; color: #475569;")
         gw_row.addWidget(gw_bridge_lbl)
-        gw_bridge_edit = field("gross_weight_bridge", read_only=True)
-        gw_bridge_edit.setMaximumWidth(100)
+        gw_bridge_edit = combo_field(
+            "gross_weight_bridge",
+            wb_options,
+            getattr(self, "gw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+        )
+        gw_bridge_edit.setEnabled(False)  # Read-only on Cane Weight form
+        gw_bridge_edit.setToolTip("Gross Weight Bridge (Configured in Settings, Read Only)")
+        gw_bridge_edit.setMinimumWidth(130)
+        gw_bridge_edit.setMaximumWidth(145)
         gw_row.addWidget(gw_bridge_edit)
 
         gw_val_lbl = QLabel("Gross Weight:")
@@ -2158,8 +2288,15 @@ class MainWindow(QWidget):
         tw_bridge_lbl = QLabel("TW Bridge:")
         tw_bridge_lbl.setStyleSheet("font-weight: 600; color: #475569;")
         tw_row.addWidget(tw_bridge_lbl)
-        tw_bridge_edit = field("tare_weight_bridge", read_only=True)
-        tw_bridge_edit.setMaximumWidth(100)
+        tw_bridge_edit = combo_field(
+            "tare_weight_bridge",
+            wb_options,
+            getattr(self, "tw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+        )
+        tw_bridge_edit.setEnabled(False)  # Read-only on Cane Weight form
+        tw_bridge_edit.setToolTip("Tare Weight Bridge (Configured in Settings, Read Only)")
+        tw_bridge_edit.setMinimumWidth(130)
+        tw_bridge_edit.setMaximumWidth(145)
         tw_row.addWidget(tw_bridge_edit)
 
         tw_val_lbl = QLabel("Tare Weight:")
@@ -3470,6 +3607,7 @@ class MainWindow(QWidget):
         wb_combo.addItems([
             "", "Weight Bridge 1", "Weight Bridge 2", "Weight Bridge 3",
             "Weight Bridge 4", "Weight Bridge 5", "Weight Bridge 6",
+            "Weight Bridge 7", "Weight Bridge 8", "Weight Bridge 9",
         ])
 
         # season/shift are Link fields (to Season/Factory Shift) in the
@@ -5398,6 +5536,94 @@ class MainWindow(QWidget):
         self.output.append(f"[Settings] Primary Frappe credentials saved: Site URL={self.primary_frappe_site_url}, Username={self.primary_frappe_username}")
         QMessageBox.information(self, "Success", "Primary Frappe credentials saved successfully!")
 
+    def _get_weighbridge_settings_file_path(self):
+        """Path to persistent weighbridge settings JSON file."""
+        app_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+        app_cfg = os.path.join(app_dir, "weighbridge_settings.json")
+        if os.path.exists(app_cfg) or os.access(app_dir, os.W_OK):
+            return app_cfg
+        return os.path.join(os.path.expanduser("~"), ".quantbit_weighbridge_settings.json")
+
+    def load_weighbridge_settings(self):
+        """Load persistent GW Bridge and TW Bridge settings from QSettings or JSON config file.
+        Defaults to 'Weight Bridge 1' if not yet configured."""
+        self.gw_bridge_setting = "Weight Bridge 1"
+        self.tw_bridge_setting = "Weight Bridge 1"
+
+        # 1. Try QSettings
+        try:
+            qsettings = QSettings("Quantbit", "QuantbitCaneWeighbridge")
+            saved_gw = qsettings.value("gw_bridge", None)
+            saved_tw = qsettings.value("tw_bridge", None)
+            if saved_gw:
+                self.gw_bridge_setting = str(saved_gw).strip()
+            if saved_tw:
+                self.tw_bridge_setting = str(saved_tw).strip()
+        except Exception as e:
+            print(f"[Settings] Error reading from QSettings: {e}")
+
+        # 2. Try JSON file fallback / redundancy
+        try:
+            cfg_path = self._get_weighbridge_settings_file_path()
+            if os.path.exists(cfg_path) and os.path.getsize(cfg_path) > 0:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data.get("gw_bridge"):
+                        self.gw_bridge_setting = str(data["gw_bridge"]).strip()
+                    if data.get("tw_bridge"):
+                        self.tw_bridge_setting = str(data["tw_bridge"]).strip()
+        except Exception as e:
+            print(f"[Settings] Error reading from JSON config: {e}")
+
+    def save_weighbridge_settings(self, gw_bridge=None, tw_bridge=None, show_message=True):
+        """Save GW Bridge and TW Bridge settings to both QSettings and JSON config file so
+        they persist forever across application restarts."""
+        if gw_bridge is None and hasattr(self, "gw_bridge_setting_combo"):
+            gw_bridge = self.gw_bridge_setting_combo.currentText().strip()
+        if tw_bridge is None and hasattr(self, "tw_bridge_setting_combo"):
+            tw_bridge = self.tw_bridge_setting_combo.currentText().strip()
+
+        self.gw_bridge_setting = gw_bridge or "Weight Bridge 1"
+        self.tw_bridge_setting = tw_bridge or "Weight Bridge 1"
+
+        # Save to QSettings
+        try:
+            qsettings = QSettings("Quantbit", "QuantbitCaneWeighbridge")
+            qsettings.setValue("gw_bridge", self.gw_bridge_setting)
+            qsettings.setValue("tw_bridge", self.tw_bridge_setting)
+            qsettings.sync()
+        except Exception as e:
+            print(f"[Settings] Error writing to QSettings: {e}")
+
+        # Save to JSON config file
+        try:
+            cfg_path = self._get_weighbridge_settings_file_path()
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "gw_bridge": self.gw_bridge_setting,
+                    "tw_bridge": self.tw_bridge_setting
+                }, f, indent=2)
+        except Exception as e:
+            print(f"[Settings] Error writing to JSON config: {e}")
+
+        # Update Cane Weight form fields immediately
+        self._default_weight_bridges(force=True)
+
+        if hasattr(self, "output") and self.output is not None:
+            self.output.append(
+                f"[Settings] Weighbridge settings saved: GW Bridge={self.gw_bridge_setting}, TW Bridge={self.tw_bridge_setting}"
+            )
+
+        if show_message:
+            QMessageBox.information(
+                self,
+                "Settings Saved",
+                f"Weighbridge settings saved successfully:\n\n"
+                f"• GW Bridge (Gross): {self.gw_bridge_setting}\n"
+                f"• TW Bridge (Tare): {self.tw_bridge_setting}\n\n"
+                f"These settings are permanently saved and will be restored whenever the application starts."
+            )
+
     def save_rfid_settings(self):
         """Apply RFID Reader Settings from the Settings tab and reconnect using the new
         values immediately - no app restart needed."""
@@ -6098,6 +6324,10 @@ class MainWindow(QWidget):
                 border-color: #4ade80;
             }
 
+            #weighbridgeSettingsGroup {
+                border-color: #10b981;
+            }
+
             #rfidSettingsGroup {
                 border-color: #f87171;
             }
@@ -6163,12 +6393,12 @@ class MainWindow(QWidget):
                 background-color: #b45309;
             }
 
-            #saveBtn, #saveApiBtn {
+            #saveBtn, #saveApiBtn, #saveWbBtn {
                 background-color: #7c3aed;
                 color: #ffffff;
             }
 
-            #saveBtn:hover, #saveApiBtn:hover {
+            #saveBtn:hover, #saveApiBtn:hover, #saveWbBtn:hover {
                 background-color: #6d28d9;
             }
 
@@ -6227,10 +6457,10 @@ class MainWindow(QWidget):
                 background-color: #ffffff;
             }
 
-            QLineEdit:read-only, QDateEdit:disabled, QTimeEdit:disabled, QDateTimeEdit:disabled, QSpinBox:disabled {
+            QLineEdit:read-only, QComboBox:disabled, QDateEdit:disabled, QTimeEdit:disabled, QDateTimeEdit:disabled, QSpinBox:disabled {
                 background-color: #f8fafc;
-                color: #334155;
-                border: 1px solid #e2e8f0;
+                color: #1e293b;
+                border: 1px solid #cbd5e1;
             }
 
             #dataOutput {
@@ -6603,6 +6833,17 @@ class MainWindow(QWidget):
                         self.form_fields["gross_weight_timestamp"].setDateTime(datetime.now())
                     self._gross_weight_captured = True
 
+                    # Ensure GW Bridge has configured default if not already populated
+                    gw_bridge_field = self.form_fields.get("gross_weight_bridge")
+                    if gw_bridge_field is not None:
+                        curr_b = gw_bridge_field.currentText().strip() if isinstance(gw_bridge_field, QComboBox) else gw_bridge_field.text().strip()
+                        if not curr_b:
+                            gw_val = getattr(self, "gw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+                            if isinstance(gw_bridge_field, QComboBox):
+                                gw_bridge_field.setCurrentText(gw_val)
+                            else:
+                                gw_bridge_field.setText(gw_val)
+
                     self.output.append(f"[SYSTEM] Gross Weight captured: {float(weight_kg)} ton at {datetime.now().strftime('%H:%M:%S')}")
                     QMessageBox.information(self, "Success", f"Gross Weight: {str(weight_kg)} ton")
                 else:
@@ -6639,6 +6880,17 @@ class MainWindow(QWidget):
                     if "tare_weight_timestamp" in self.form_fields:
                         self.form_fields["tare_weight_timestamp"].setDateTime(datetime.now())
                     self._tare_weight_captured = True
+
+                    # Ensure TW Bridge has configured default if not already populated
+                    tw_bridge_field = self.form_fields.get("tare_weight_bridge")
+                    if tw_bridge_field is not None:
+                        curr_b = tw_bridge_field.currentText().strip() if isinstance(tw_bridge_field, QComboBox) else tw_bridge_field.text().strip()
+                        if not curr_b:
+                            tw_val = getattr(self, "tw_bridge_setting", "Weight Bridge 1") or "Weight Bridge 1"
+                            if isinstance(tw_bridge_field, QComboBox):
+                                tw_bridge_field.setCurrentText(tw_val)
+                            else:
+                                tw_bridge_field.setText(tw_val)
 
                     self.output.append(f"[SYSTEM] Tare Weight captured: {float(weight_kg)} kg at {datetime.now().strftime('%H:%M:%S')}")
                     # QMessageBox.information(self, "Success", f"Tare Weight: {float(weight_kg)} kg")
@@ -7019,6 +7271,7 @@ class MainWindow(QWidget):
         already loaded for editing). Does not clear the form - use the Clear Form button for that."""
         self.output.append("[Submit] Submit button clicked - starting form submission...")
         self._default_weight_bridge_users()  # ensure Gross/Tare Weight Bridge User is never blank
+        self._default_weight_bridges(force=False)  # ensure Gross/Tare Weight Bridge is never blank
 
         form_data = self._collect_cane_weight_form_data()
         self.output.append(f"[Submit] Collected data from {len(form_data)} form fields")
@@ -7037,6 +7290,7 @@ class MainWindow(QWidget):
         Does not clear the form - use the Clear Form button for that."""
         self.output.append("[Save] Save button clicked - saving entry to Frappe...")
         self._default_weight_bridge_users()  # ensure Gross/Tare Weight Bridge User is never blank
+        self._default_weight_bridges(force=False)  # ensure Gross/Tare Weight Bridge is never blank
 
         form_data = self._collect_cane_weight_form_data()
         self.output.append(f"[Save] Collected data from {len(form_data)} form fields")
@@ -7079,6 +7333,7 @@ class MainWindow(QWidget):
             do_not_allow_fuel_check.setChecked(False)
         self._refresh_posting_datetime_now()  # posting_date/time always live, not blank
         self._default_weight_bridge_users()  # weight bridge users default to logged-in user
+        self._default_weight_bridges(force=True)  # GW and TW Bridge default to configured Settings
         # New truck, no weight captured yet - Gross/Tare Weight Timestamp go back to live-ticking
         self._gross_weight_captured = False
         self._tare_weight_captured = False
@@ -10264,12 +10519,11 @@ class LoginPage(QWidget):
 
     def load_logo_icon(self):
         """Load the logo image (local asset, base64, or URL) and create a QIcon for the window."""
-        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64)
+        pixmap = get_local_or_remote_pixmap("kranti_sugar_logo.png", fallback_b64=KRANTI_LOGO_B64, remote_url=KRANTI_LOGO_URL)
         if pixmap and not pixmap.isNull():
             return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         
-        logo_url = "https://media.licdn.com/dms/image/v2/D560BAQEMpaC_iBLQyw/company-logo_200_200/company-logo_200_200/0/1719257928420/quantbit_technologies_logo?e=2147483647&v=beta&t=B5LgukVqoYKt0Pls_rXBAjLhnqrHmi5yTxX1k9cKcz0"
-        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=logo_url)
+        pixmap = get_local_or_remote_pixmap("quantbit_logo.png", fallback_b64=QUANTBIT_LOGO_B64, remote_url=QUANTBIT_LOGO_URL)
         if pixmap and not pixmap.isNull():
             return QIcon(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 

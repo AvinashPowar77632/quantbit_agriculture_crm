@@ -14,6 +14,7 @@ import json
 from frappe.utils import getdate, to_timedelta
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from typing import List
 
 # Suppress SSL warnings when using verify=False
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -455,9 +456,9 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
             frappe.throw(f"Trip Sheet {trip_sheet} not found for season {season}.")
 
         # Trip Sheet must be Submitted Token before Cane Weight
-        if trip_sheet_doc.status != "Submitted Token":
+        if trip_sheet_doc.status not in ["Submitted Token", "Gross Weight Done"]:
             frappe.throw(
-                f"Trip Sheet {trip_sheet} is not in 'Submitted Token' status. "
+                f"Trip Sheet {trip_sheet} is not in 'Submitted Token' or 'Gross Weight Done' status. "
                 f"Current status is '{trip_sheet_doc.status or 'Not Set'}'. "
                 f"Please complete the Auto Token process first."
             )
@@ -1093,3 +1094,91 @@ def get_trip_sheet_filter_options(transporter_contract=None, trip_sheet=None):
         "trip_sheet_details": trip_sheets
     }
 
+
+
+@frappe.whitelist()
+def change_satus_of_trip_sheet(trip_sheet):
+    try:
+        status_change("Trip Sheet", [trip_sheet], "status", "Gross Weight Done")
+        return {
+            "success": True,
+            "message": "Trip Sheet status changed successfully"
+        }
+    except Exception as e:
+        frappe.log_error(f"Error in change_satus_of_trip_sheet: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}"
+        }
+
+
+@frappe.whitelist()
+def update_trip_sheets_gross_weight_done(trip_sheets=None):
+    """
+    Mark Trip Sheets status as 'Gross Weight Done' on remote server.
+    Accepts a single trip sheet name or a list/JSON-encoded array of names.
+    Directly updates `status` via SQL to bypass document submit/validation restrictions.
+    """
+    try:
+        if not trip_sheets:
+            return {"success": False, "message": "No trip sheets provided"}
+
+        if isinstance(trip_sheets, str):
+            try:
+                trip_sheets = json.loads(trip_sheets)
+            except (json.JSONDecodeError, TypeError):
+                trip_sheets = [s.strip() for s in trip_sheets.split(",") if s.strip()]
+
+        if not isinstance(trip_sheets, list):
+            trip_sheets = [trip_sheets]
+
+        trip_sheets = [ts for ts in trip_sheets if ts]
+        if not trip_sheets:
+            return {"success": False, "message": "No valid trip sheets provided"}
+
+        placeholders = ", ".join(["%s"] * len(trip_sheets))
+        frappe.db.sql(
+            f"""
+            UPDATE `tabTrip Sheet`
+            SET status = 'Gross Weight Done'
+            WHERE name IN ({placeholders})
+            """,
+            tuple(trip_sheets)
+        )
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Successfully updated {len(trip_sheets)} trip sheet(s) to Gross Weight Done",
+            "updated_count": len(trip_sheets)
+        }
+    except Exception as e:
+        frappe.log_error(f"Error in update_trip_sheets_gross_weight_done: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}"
+        }
+
+
+@frappe.whitelist()
+def status_change(doctype: str, docnames: List[str], status_field: str, status: str):
+    if not doctype:
+        frappe.throw("Doctype is required")
+    if not docnames:
+        frappe.throw("List of document names is required")
+    if not status_field:
+        frappe.throw("Fieldname is required")
+    if status is None:
+        frappe.throw("Status value is required")
+
+    placeholders = ", ".join(["%s"] * len(docnames))
+
+    frappe.db.sql(
+        f"""
+        UPDATE `tab{doctype}`
+        SET `{status_field}` = %s
+        WHERE name IN ({placeholders})
+        """,
+        tuple([status] + list(docnames)),
+    )
+    frappe.db.commit()

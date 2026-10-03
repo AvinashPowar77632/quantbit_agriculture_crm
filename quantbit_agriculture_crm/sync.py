@@ -76,7 +76,7 @@ def _mark_trip_sheets_synced_on_remote(session, base_url, names):
         resp = session.post(
             f"{base_url}/api/method/quantbit_agriculture_crm.exe_api.mark_trip_sheets_as_synced",
             data={"trip_sheets": json.dumps(names)},
-            timeout=15,
+            timeout=30,
         )
         if resp.status_code == 200:
             res_json = resp.json()
@@ -311,9 +311,9 @@ def sync_trip_sheet_remote_to_local():
         return {"success": False, "message": str(e)}
 
 def delete_old_error_logs():
-    """Delete Error Log entries older than 20 days. Runs every 6 hours via cron."""
+    """Delete Error Log entries older than 5 days. Runs every 6 hours via cron."""
     ts = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
-    cutoff_date = add_days(now_datetime(), -20)
+    cutoff_date = add_days(now_datetime(), -5)
 
     try:
         old_logs = frappe.get_all(
@@ -697,3 +697,114 @@ def sync_other_weight_two():
     _log("Other Weight Sync", f"Sync job complete: {synced} synced, {failed} failed out of {len(local_other_weights)}")
 
 
+def _update_trip_sheets_status_on_remote_site(session, base_url, trip_sheet_names, status="Gross Weight Done"):
+    """
+    Push Trip Sheet status update to a single remote site.
+    Returns (set of successful trip sheet names, dict of errors).
+    """
+    if not trip_sheet_names:
+        return set(), {}
+
+    try:
+        resp = session.post(
+            f"{base_url}/api/method/quantbit_agriculture_crm.exe_api.update_trip_sheets_gross_weight_done",
+            data={"trip_sheets": json.dumps(list(trip_sheet_names))},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            res_json = resp.json()
+            msg = res_json.get("message")
+            if isinstance(msg, dict) and msg.get("success"):
+                return set(trip_sheet_names), {}
+            elif isinstance(msg, dict) and not msg.get("success"):
+                _log("Remote Status Sync Warning", f"Batch update returned failure: {msg.get('message')}")
+                return set(), {"error": msg.get("message")}
+            return set(trip_sheet_names), {}
+        else:
+            _log("Remote Status Sync Error", f"Status {resp.status_code}: {resp.text[:200]}")
+            return set(), {"error": f"Status {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        _log("Remote Status Sync Exception", f"Batch endpoint exception: {str(e)[:200]}")
+        return set(), {"error": str(e)[:200]}
+
+
+
+
+TRIP_SHEET_GROSS_WEIGHT_STATUS = "Gross Weight Done"
+TRIP_SHEET_STATUS_BATCH_SIZE = 100
+
+
+@frappe.whitelist(allow_guest=False)
+def sync_gross_weight_done_trip_sheets_to_remote():
+    """
+    Push ONLY the status of local Trip Sheets that are 'Gross Weight Done' to all
+    configured remote sites. No full document sync and no local changes.
+    """
+    _log("Trip Sheet Status Sync", "Starting Gross Weight Done status sync (Local to Remote)")
+
+    # Local name == remote name (sync_trip_sheet_remote_to_local inserts with set_name=name)
+    trip_sheet_names = frappe.get_all(
+        "Trip Sheet",
+        filters={"status": TRIP_SHEET_GROSS_WEIGHT_STATUS},
+        pluck="name",
+    )
+    if not trip_sheet_names:
+        return {"success": True, "message": "Nothing to sync", "synced": 0, "failed": 0}
+
+    sites = frappe.get_all("Site Configuration", fields=["name", "site", "user", "password"])
+    if not sites:
+        _log("Trip Sheet Status Sync", "No site configurations found in 'Site Configuration' doctype")
+        return {"success": False, "message": "No site configurations found"}
+
+    synced, failed = 0, 0
+    site_errors = {}
+
+    for site in sites:
+        base_url = site.site.rstrip("/")
+        session = requests.Session()
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[502, 503, 504])
+        session.mount("http://", HTTPAdapter(max_retries=retries))
+        session.mount("https://", HTTPAdapter(max_retries=retries))
+
+        # --- Authenticate ---
+        try:
+            resp = session.post(
+                f"{base_url}/api/method/login",
+                data={"usr": site.user, "pwd": site.password},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30,
+            )
+            if resp.status_code != 200 or "Logged In" not in resp.text:
+                _log("Auth Failed", f"{site.name}: status {resp.status_code}")
+                site_errors[site.name] = f"authentication failed (status {resp.status_code})"
+                failed += len(trip_sheet_names)
+                continue
+        except Exception as e:
+            _log("Auth Exception", f"{site.name}: {str(e)[:200]}")
+            site_errors[site.name] = str(e)[:200]
+            failed += len(trip_sheet_names)
+            continue
+
+        # --- Push status in batches ---
+        for i in range(0, len(trip_sheet_names), TRIP_SHEET_STATUS_BATCH_SIZE):
+            batch = trip_sheet_names[i:i + TRIP_SHEET_STATUS_BATCH_SIZE]
+            ok, errors = _update_trip_sheets_status_on_remote_site(
+                session, base_url, batch, status=TRIP_SHEET_GROSS_WEIGHT_STATUS
+            )
+            synced += len(ok)
+            failed += len(batch) - len(ok)
+            if errors:
+                site_errors[site.name] = errors.get("error")
+
+    msg = f"Status sync done: {synced} OK, {failed} failed"
+    _log("Trip Sheet Status Sync", msg)
+    if site_errors:
+        _log("Trip Sheet Status Sync Errors", f"{site_errors}"[:2000])
+
+    return {
+        "success": not site_errors,
+        "message": msg,
+        "synced": synced,
+        "failed": failed,
+        "errors": site_errors,
+    }

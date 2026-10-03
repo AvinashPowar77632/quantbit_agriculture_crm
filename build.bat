@@ -99,7 +99,20 @@ set "DATA_ARG="
 if exist "assets" (
     set "DATA_ARG=--add-data assets;assets"
 )
-"%VENV_PY%" -m PyInstaller --noconfirm --onefile --windowed !DATA_ARG! --name "QuantbitCaneWeighbridge" main.py
+if exist "quantbit_agriculture_crm\public\images" (
+    set "DATA_ARG=!DATA_ARG! --add-data quantbit_agriculture_crm\public\images;quantbit_agriculture_crm\public\images"
+)
+
+set "ICON_ARG="
+if exist "assets\kranti_sugar_logo.ico" (
+    set "ICON_ARG=--icon assets\kranti_sugar_logo.ico"
+) else if exist "quantbit_agriculture_crm\public\images\kranti_sugar_logo.ico" (
+    set "ICON_ARG=--icon quantbit_agriculture_crm\public\images\kranti_sugar_logo.ico"
+) else if exist "assets\kranti_sugar_logo.png" (
+    set "ICON_ARG=--icon assets\kranti_sugar_logo.png"
+)
+
+"%VENV_PY%" -m PyInstaller --noconfirm --onefile --windowed !DATA_ARG! !ICON_ARG! --hidden-import assets_data --hidden-import quantbit_agriculture_crm.assets_data --name "QuantbitCaneWeighbridge" main.py
 if errorlevel 1 (
     echo ERROR: PyInstaller build failed. See the output above.
     pause
