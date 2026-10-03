@@ -114,7 +114,7 @@ class CaneWeight(Document):
 	
 	
 	def before_save_status_change(self):
-		if self.gross_weight > 0 and self.tare_weight > 0:
+		if self.gross_weight > 0 and self.tare_weight <= 0:
 			trip_id= [self.trip_sheet]
 			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Gross Weight Done")
 
