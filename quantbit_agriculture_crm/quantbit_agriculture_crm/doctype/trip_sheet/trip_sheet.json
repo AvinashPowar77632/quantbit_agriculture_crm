@@ -87,6 +87,7 @@
   "json",
   "farmer_deduction_type",
   "trolly_trailer_1_ll_name",
+  "token_no",
   "column_break_yogz",
   "slip_boy_name",
   "auto_token_no",
@@ -578,12 +579,17 @@
    "fieldname": "trolly_trailer_2_ll_name",
    "fieldtype": "Data",
    "label": "trolly_trailer_2_ll_name"
+  },
+  {
+   "fieldname": "token_no",
+   "fieldtype": "Data",
+   "label": "Token No"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-02 13:46:16.294078",
+ "modified": "2026-10-03 17:52:01.841648",
  "modified_by": "Administrator",
  "module": "Quantbit Agriculture Crm",
  "name": "Trip Sheet",
