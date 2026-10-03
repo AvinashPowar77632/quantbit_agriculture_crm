@@ -949,6 +949,7 @@ def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, ca
     fields = [
         "name", "slip_no", "status", "auto_token_no",
         "trolly_1", "trolly_2", "trolly_trailer_1", "trolly_trailer_2",
+        "trolly_trailer_1_ll_name", "trolly_trailer_2_ll_name",
         "rope_placement", "transporter_vehicle_type",
         "ht_driver", "ht_driver_name",
         "farmer", "farmer_name",
@@ -956,7 +957,8 @@ def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, ca
         "transporter_contract", "transporter", "transporter_name",
         "harvester_contract", "harvester", "harvester_name",
         "farmer_deduction_type",
-        "vehicle_no"
+        "vehicle_no", "village", "route", "circle_office", "crop_variety", "crop_type",
+        "json"
     ]
 
     tc = (transporter_contract or "").strip()
@@ -1023,21 +1025,49 @@ def get_auto_token_trip_sheets(transporter_contract=None, trip_sheet_no=None, ca
 
     # Normalize fields for each record so every column is ready
     for s in trip_sheets:
+        raw_json = s.get("json")
+        ll_names = {}
+        if raw_json:
+            try:
+                ll_names = json.loads(raw_json) if isinstance(raw_json, str) else (raw_json or {})
+            except Exception:
+                ll_names = {}
+
+        # Trolly Trailer 1 & 2
         s["trolly_trailer_1"] = s.get("trolly_trailer_1") or s.get("trolly_1") or ""
         s["trolly_trailer_2"] = s.get("trolly_trailer_2") or s.get("trolly_2") or ""
-        s["ht_driver"] = s.get("ht_driver_name") or s.get("ht_driver") or ""
+        s["trolly_trailer_1_ll_name"] = s.get("trolly_trailer_1_ll_name") or ll_names.get("trolly_trailer_1_ll_name") or s["trolly_trailer_1"]
+        s["trolly_trailer_2_ll_name"] = s.get("trolly_trailer_2_ll_name") or ll_names.get("trolly_trailer_2_ll_name") or s["trolly_trailer_2"]
+
+        # Local Language (LL) names from json field
+        s["rope_placement_ll_name"] = ll_names.get("rope_placement_ll_name") or s.get("rope_placement") or ""
+        s["transporter_vehicle_type_ll_name"] = ll_names.get("transporter_vehicle_type_ll_name") or s.get("transporter_vehicle_type") or ""
+        s["ht_driver_ll_name"] = ll_names.get("ht_driver_ll_name") or s.get("ht_driver_name") or s.get("ht_driver") or ""
+        s["farmer_ll_name"] = ll_names.get("farmer_ll_name") or s.get("farmer_name") or s.get("farmer") or ""
+        s["transporter_ll_name"] = ll_names.get("transporter_ll_name") or s.get("transporter_name") or s.get("transporter_contract") or s.get("transporter") or ""
+        s["harvester_ll_name"] = ll_names.get("harvester_ll_name") or s.get("harvester_name") or s.get("harvester_contract") or s.get("harvester") or ""
+        s["village_ll_name"] = ll_names.get("village_ll_name") or s.get("village") or ""
+        s["route_ll_name"] = ll_names.get("route_ll_name") or s.get("route") or ""
+        s["circle_office_ll_name"] = ll_names.get("circle_office_ll_name") or s.get("circle_office") or ""
+        s["crop_variety_ll_name"] = ll_names.get("crop_variety_ll_name") or s.get("crop_variety") or ""
+        s["crop_type_ll_name"] = ll_names.get("crop_type_ll_name") or s.get("crop_type") or ""
+
+        s["ht_driver"] = s["ht_driver_ll_name"] or s.get("ht_driver_name") or s.get("ht_driver") or ""
 
         f_code = s.get("farmer") or ""
         f_name = s.get("farmer_name") or ""
-        s["farmer"] = f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code)
+        s["farmer"] = s["farmer_ll_name"] or (f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code))
 
         tc_code = s.get("transporter_contract") or ""
         tc_name = s.get("transporter_name") or ""
-        s["transporter_contract_name"] = tc_code or tc_name
+        s["transporter_contract_name"] = s["transporter_ll_name"] or tc_code or tc_name
+        s["transporter"] = s["transporter_ll_name"] or tc_name or tc_code or s.get("transporter") or ""
 
         hc_code = s.get("harvester_contract") or ""
         hc_name = s.get("harvester_name") or ""
-        s["harvester_contract_name"] = hc_code or hc_name
+        s["harvester_contract_name"] = s["harvester_ll_name"] or hc_code or hc_name
+        s["harvester"] = s["harvester_ll_name"] or hc_name or hc_code or s.get("harvester") or ""
+
 
     return {
         "auto_token": auto_token_no,

@@ -10069,15 +10069,18 @@ class MainWindow(QWidget):
         columns = [
             ("name", "Trip Sheet", 130),
             ("slip_no", "Slip No", 80),
-            ("trolly_trailer_1", "Trolly Trailer 1", 120),
-            ("trolly_trailer_2", "Trolly Trailer 2", 120),
-            ("rope_placement", "Rope Placement", 140),
-            ("transporter_vehicle_type", "Transporter Vehicle Type", 150),
-            ("ht_driver", "HT Driver", 130),
-            ("farmer", "Farmer", 150),
+            ("status", "Status", 125),
+            ("farmer", "Farmer", 160),
+            ("trolly_trailer_1_ll_name", "Trolly Trailer 1 LL Name", 140),
+            ("trolly_trailer_2_ll_name", "Trolly Trailer 2 LL Name", 140),
+            ("rope_placement_ll_name", "Rope Placement LL Name", 140),
+            ("transporter_vehicle_type_ll_name", "Vehicle Type LL Name", 150),
+            ("ht_driver_ll_name", "HT Driver LL Name", 140),
+            ("transporter", "Transporter", 160),
+            ("harvester_ll_name", "Harvester LL Name", 160),
+            ("village_ll_name", "Village LL Name", 130),
+            ("route_ll_name", "Route LL Name", 140),
             ("cane_registration", "Cane Registration", 130),
-            ("transporter_contract_name", "Transporter Contract Name", 170),
-            ("harvester_contract_name", "Harvestor Contract Name", 170),
         ]
 
         table = QTableWidget()
@@ -10099,6 +10102,7 @@ class MainWindow(QWidget):
         master_contracts = []
         master_trip_sheets = []
         all_trip_sheet_details = []
+        current_records = []
 
         auto_load_timer = QTimer(dialog)
         auto_load_timer.setSingleShot(True)
@@ -10109,27 +10113,79 @@ class MainWindow(QWidget):
         tc_debounce_timer.setInterval(350)
 
         def populate_table(records):
+            nonlocal current_records
+            current_records = list(records)
             table.setRowCount(len(records))
             for row_idx, r in enumerate(records):
+                raw_json = r.get("json")
+                ll_names = {}
+                if raw_json:
+                    try:
+                        ll_names = json.loads(raw_json) if isinstance(raw_json, str) else (raw_json or {})
+                    except Exception:
+                        ll_names = {}
+
                 for col_idx, (key, _, _) in enumerate(columns):
                     val = r.get(key)
-                    if val is None or val == "":
-                        if key == "trolly_trailer_1":
-                            val = r.get("trolly_1") or ""
-                        elif key == "trolly_trailer_2":
-                            val = r.get("trolly_2") or ""
-                        elif key == "ht_driver":
-                            val = r.get("ht_driver_name") or ""
-                        elif key == "farmer":
-                            f_code = r.get("farmer") or ""
-                            f_name = r.get("farmer_name") or ""
-                            val = f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code)
-                        elif key == "transporter_contract_name":
-                            val = r.get("transporter_contract") or r.get("transporter_name") or ""
-                        elif key == "harvester_contract_name":
-                            val = r.get("harvester_contract") or r.get("harvester_name") or ""
-                    val_str = "" if val is None else str(val)
+                    if not val and key in ll_names:
+                        val = ll_names.get(key)
+
+                    # Fallbacks if LL name is empty
+                    if not val:
+                        if key == "trolly_trailer_1_ll_name":
+                            val = ll_names.get("trolly_trailer_1_ll_name") or r.get("trolly_trailer_1") or r.get("trolly_1") or ""
+                        elif key == "trolly_trailer_2_ll_name":
+                            val = ll_names.get("trolly_trailer_2_ll_name") or r.get("trolly_trailer_2") or r.get("trolly_2") or ""
+                        elif key == "rope_placement_ll_name":
+                            val = ll_names.get("rope_placement_ll_name") or r.get("rope_placement") or ""
+                        elif key == "transporter_vehicle_type_ll_name":
+                            val = ll_names.get("transporter_vehicle_type_ll_name") or r.get("transporter_vehicle_type") or ""
+                        elif key == "ht_driver_ll_name":
+                            val = ll_names.get("ht_driver_ll_name") or r.get("ht_driver_name") or r.get("ht_driver") or ""
+                        elif key in ("farmer", "farmer_ll_name"):
+                            val = r.get("farmer_ll_name") or ll_names.get("farmer_ll_name")
+                            if not val:
+                                f_code = r.get("farmer") or ""
+                                f_name = r.get("farmer_name") or ""
+                                val = f"{f_code} - {f_name}" if (f_code and f_name) else (f_name or f_code)
+                        elif key in ("transporter", "transporter_ll_name"):
+                            val = r.get("transporter_ll_name") or ll_names.get("transporter_ll_name") or r.get("transporter_contract_name") or r.get("transporter_name") or r.get("transporter_contract") or r.get("transporter") or ""
+                        elif key in ("harvester_ll_name", "harvester"):
+                            val = r.get("harvester_ll_name") or ll_names.get("harvester_ll_name") or r.get("harvester_contract_name") or r.get("harvester_name") or r.get("harvester_contract") or r.get("harvester") or ""
+                        elif key in ("village_ll_name", "village"):
+                            val = r.get("village_ll_name") or ll_names.get("village_ll_name") or r.get("village") or ""
+                        elif key in ("route_ll_name", "route"):
+                            val = r.get("route_ll_name") or ll_names.get("route_ll_name") or r.get("route") or ""
+
+                    val_str = "" if val is None else str(val).strip()
                     item = QTableWidgetItem(val_str)
+
+                    # Status field styling with color
+                    if key == "status":
+                        item.setTextAlignment(Qt.AlignCenter)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                        status_lower = val_str.lower()
+                        if "weight done" in status_lower:
+                            item.setBackground(QColor("#dcfce7"))
+                            item.setForeground(QColor("#15803d"))
+                        elif "gross" in status_lower:
+                            item.setBackground(QColor("#fef3c7"))
+                            item.setForeground(QColor("#b45309"))
+                        elif "submitted" in status_lower:
+                            item.setBackground(QColor("#dbeafe"))
+                            item.setForeground(QColor("#1d4ed8"))
+                        elif "pending" in status_lower:
+                            item.setBackground(QColor("#f3e8ff"))
+                            item.setForeground(QColor("#7e22ce"))
+                        elif "new" in status_lower:
+                            item.setBackground(QColor("#f1f5f9"))
+                            item.setForeground(QColor("#475569"))
+                        else:
+                            item.setBackground(QColor("#f8fafc"))
+                            item.setForeground(QColor("#334155"))
+
                     table.setItem(row_idx, col_idx, item)
 
         def get_clean_filter_values():
@@ -10299,14 +10355,17 @@ class MainWindow(QWidget):
                 QMessageBox.warning(dialog, "Selection Required", "Please select a record from the table to load into Cane Weight.")
                 return
             row = selected_rows[0].row()
-            ts_item = table.item(row, 0)
-            if not ts_item or not ts_item.text().strip():
+            record = current_records[row] if row < len(current_records) else {}
+            trip_sheet_name = (record.get("name") or "").strip()
+            if not trip_sheet_name:
+                ts_item = table.item(row, 0)
+                trip_sheet_name = ts_item.text().strip() if ts_item else ""
+
+            if not trip_sheet_name:
                 QMessageBox.warning(dialog, "Invalid Selection", "Selected record is missing a Trip Sheet number.")
                 return
-            trip_sheet_name = ts_item.text().strip()
 
-            tc_item = table.item(row, 9)
-            tc_name = tc_item.text().strip() if tc_item else ""
+            tc_name = record.get("transporter_contract") or record.get("transporter_name") or record.get("transporter") or ""
 
             dialog.accept()
 
