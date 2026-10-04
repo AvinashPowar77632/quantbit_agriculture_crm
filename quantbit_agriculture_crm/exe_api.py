@@ -259,6 +259,15 @@ def is_last_trip_sheet_of_auto_token(trip_sheet):
     return not pending
 
 
+def round_diesel_allocation(val):
+    """Round diesel allocation: if decimal part is >= 0.5 round up to next integer (1),
+    if below 0.5 round down to 0 (standard ROUND_HALF_UP)."""
+    if not val:
+        return 0.0
+    d = Decimal(str(round(flt(val), 6)))
+    return float(d.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+
 @frappe.whitelist()
 def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_allocation=0, heavy_vehicle=0, as_dict=True, trip_sheet=None):
     """heavy_vehicle here is the Cane Weight "Heavy Vehicle" checkbox state as set
@@ -306,7 +315,7 @@ def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_alloca
 
     if not alloc_criteria:
         res = {
-            "diesel_allocation": round(extra_fuel, 2),
+            "diesel_allocation": round_diesel_allocation(extra_fuel),
             "heavy_vehicle": 0,
             "heavy_vehicle_fuel_allowance": 0.0,
             "extra_fuel_allocation": round(extra_fuel, 2),
@@ -338,7 +347,7 @@ def diesel_allocation_method(season, vehicle_type, distance=0, extra_fuel_alloca
     diesel_allocation = base_allocation + applied_heavy_vehicle_allowance + extra_fuel
 
     res = {
-        "diesel_allocation": round(diesel_allocation, 2),
+        "diesel_allocation": round_diesel_allocation(diesel_allocation),
         "heavy_vehicle": heavy_vehicle,
         "heavy_vehicle_fuel_allowance": round(heavy_vehicle_fuel_allowance, 2),
         "extra_fuel_allocation": round(extra_fuel, 2),

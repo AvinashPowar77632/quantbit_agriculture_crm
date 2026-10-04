@@ -2,6 +2,7 @@ import sys
 import serial
 import serial.tools.list_ports
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 import requests
 import json
 import re # Added for regex operations
@@ -428,8 +429,9 @@ class SearchableComboBox(QComboBox):
 
 class MainWindow(QWidget):
     # Matches the "Cane Weight Penalty Charges" child DocType's Deduction
-    # Method Select field options exactly.
-    PENALTY_DEDUCTION_METHODS = ["Percentage", "Amount", "Amount Per Ton"]
+    # Method Select field options exactly (leading empty option matches the
+    # DocType's "\nPercentage\nAmount\nAmount Per Ton" options so it starts blank).
+    PENALTY_DEDUCTION_METHODS = ["", "Percentage", "Amount", "Amount Per Ton"]
 
     def _make_penalty_readonly_item(self, text=""):
         """A QTableWidgetItem for the penalty charges table that the user
@@ -440,11 +442,15 @@ class MainWindow(QWidget):
 
     def _make_penalty_deduction_method_combo(self, current_text=""):
         """A QComboBox cell widget for the penalty charges table's Deduction
-        Method column, restricted to the DocType's Select options."""
+        Method column, restricted to the DocType's Select options. Defaults
+        to empty unless populated from fetched data or explicitly set."""
         combo = QComboBox()
         combo.addItems(self.PENALTY_DEDUCTION_METHODS)
-        if current_text in self.PENALTY_DEDUCTION_METHODS:
-            combo.setCurrentText(current_text)
+        val = str(current_text or "").strip()
+        if val in self.PENALTY_DEDUCTION_METHODS:
+            combo.setCurrentText(val)
+        else:
+            combo.setCurrentIndex(0)
         return combo
 
     def _populate_compact_grid(self, grid, items, slots_per_row=4, start_row=0):
@@ -1410,6 +1416,14 @@ class MainWindow(QWidget):
             # API/draft already supplied are left exactly as they came.
             self._recalculate_diesel_allocation()
 
+    def _round_diesel_allocation(self, val):
+        """Round diesel allocation: if decimal part >= 0.5 round up to next integer,
+        if below 0.5 round down to current integer (standard ROUND_HALF_UP)."""
+        if not val:
+            return 0.0
+        d = Decimal(str(round(float(val), 6)))
+        return float(d.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
     def _recalculate_diesel_allocation(self):
         """Dynamically recalculate diesel_allocation = base + heavy_vehicle_allowance + extra_fuel_allocation"""
         try:
@@ -1426,12 +1440,12 @@ class MainWindow(QWidget):
         if heavy_vehicle_check is not None and not heavy_vehicle_check.isChecked():
             heavy_val = 0.0
         base_val = getattr(self, "_base_diesel_allocation", 0.0)
-        total = round(base_val + heavy_val + extra_val, 2)
+        total = self._round_diesel_allocation(base_val + heavy_val + extra_val)
         if not getattr(self, "_diesel_allocation_allowed", True):
             total = 0.0
         diesel_widget = self.form_fields.get("diesel_allocation")
         if diesel_widget is not None:
-            diesel_widget.setText(str(total))
+            diesel_widget.setText(str(int(total)) if total == int(total) else str(total))
 
     def _populate_cane_weight_form_from_exe_api(self, data, full_trip_sheet_no, is_existing=False):
         """Populate the Cane Weight form from a quantbit_agriculture_crm.exe_api.get_data
@@ -1560,8 +1574,8 @@ class MainWindow(QWidget):
             penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo(str(row_data.get("deduction_method") or "")))
             deduction_rate_val = row_data.get("deduction_rate")
             penalty_table.setItem(row, 6, QTableWidgetItem("" if deduction_rate_val is None else str(deduction_rate_val)))
-            penalty_table.setItem(row, 7, QTableWidgetItem(""))
-            penalty_table.setItem(row, 8, QTableWidgetItem(""))
+            penalty_table.setItem(row, 7, QTableWidgetItem(str(row_data.get("debit_account") or "")))
+            penalty_table.setItem(row, 8, QTableWidgetItem(str(row_data.get("credit_account") or "")))
         self.output.append(f"[Cane Weight API] Populated {len(penalty_rows)} penalty charge row(s) from API")
 
     def create_cane_form_tab(self):
@@ -5406,16 +5420,8 @@ class MainWindow(QWidget):
                         widget.setDateTime(datetime_obj)
             # Handle QTableWidget for penalty charges
             elif field_name == "penalty_charges" and isinstance(widget, QTableWidget):
-                widget.setRowCount(0) # Clear existing rows
-                if isinstance(value, list):
-                    for row_idx, penalty_item in enumerate(value):
-                        self.add_penalty_row(widget)
-                        widget.setItem(row_idx, 0, QTableWidgetItem(str(penalty_item.get('idx', row_idx + 1))))
-                        widget.setItem(row_idx, 1, QTableWidgetItem(str(penalty_item.get('vendor_name', ''))))
-                        widget.setItem(row_idx, 2, QTableWidgetItem(str(penalty_item.get('penalty_type', ''))))
-                        widget.setItem(row_idx, 3, QTableWidgetItem(str(penalty_item.get('deduction_type', ''))))
-                        widget.setItem(row_idx, 4, QTableWidgetItem(str(penalty_item.get('deduction_method', ''))))
-                        widget.setItem(row_idx, 5, QTableWidgetItem(str(penalty_item.get('deduction_amount', 0.0))))
+                if isinstance(value, list) and value:
+                    self._populate_penalty_charges_table_from_api(value)
         
         # Manually update specific fields not covered by the generic loop or requiring special handling
         if 'slip_no' in doc and 'slip_no' in self.form_fields:
@@ -5426,9 +5432,10 @@ class MainWindow(QWidget):
 
         self.output.append(f"[Cane Weight] Form populated from Cane Weight DocType: {doc.get('name', 'Unknown')}")
         
-        # Auto-populate penalty charges after loading the form
-        self.output.append("[Cane Weight] Auto-populating penalty charges...")
-        self.auto_populate_penalty_charges(show_success_message=False)
+        # Auto-populate penalty charges after loading the form if none were loaded
+        if not doc.get("penalty_charges"):
+            self.output.append("[Cane Weight] Auto-populating penalty charges...")
+            self.auto_populate_penalty_charges(show_success_message=False)
 
     def add_penalty_row(self, table):
         """Add a new row to the penalty charges table"""
@@ -5504,7 +5511,7 @@ class MainWindow(QWidget):
                 penalty_table.setItem(row, 2, self._make_penalty_readonly_item(farmer_name))  # Entity Name
                 penalty_table.setItem(row, 3, self._make_penalty_readonly_item("Farmer"))  # Entity Type
                 penalty_table.setItem(row, 4, QTableWidgetItem(farmer_deduction_type or cane_deduction_type or ""))  # Deduction Type
-                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo("Percentage"))  # Deduction Method
+                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo(""))  # Deduction Method
                 penalty_table.setItem(row, 6, QTableWidgetItem("0"))  # Deduction Rate
                 penalty_table.setItem(row, 7, QTableWidgetItem(""))  # Debit Account
                 penalty_table.setItem(row, 8, QTableWidgetItem(""))  # Credit Account
@@ -5518,7 +5525,7 @@ class MainWindow(QWidget):
                 penalty_table.setItem(row, 2, self._make_penalty_readonly_item(transporter_name))  # Entity Name
                 penalty_table.setItem(row, 3, self._make_penalty_readonly_item("Transporter"))  # Entity Type
                 penalty_table.setItem(row, 4, QTableWidgetItem("Penalty"))  # Deduction Type
-                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo("Amount Per Ton"))  # Deduction Method
+                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo(""))  # Deduction Method
                 penalty_table.setItem(row, 6, QTableWidgetItem("0"))  # Deduction Rate
                 penalty_table.setItem(row, 7, QTableWidgetItem(debit_account))  # Debit Account
                 penalty_table.setItem(row, 8, QTableWidgetItem(credit_account))  # Credit Account
@@ -5532,7 +5539,7 @@ class MainWindow(QWidget):
                 penalty_table.setItem(row, 2, self._make_penalty_readonly_item(harvester_name))  # Entity Name
                 penalty_table.setItem(row, 3, self._make_penalty_readonly_item("Harvester"))  # Entity Type
                 penalty_table.setItem(row, 4, QTableWidgetItem("Penalty"))  # Deduction Type
-                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo("Amount Per Ton"))  # Deduction Method
+                penalty_table.setCellWidget(row, 5, self._make_penalty_deduction_method_combo(""))  # Deduction Method
                 penalty_table.setItem(row, 6, QTableWidgetItem("0"))  # Deduction Rate
                 penalty_table.setItem(row, 7, QTableWidgetItem(debit_account))  # Debit Account
                 penalty_table.setItem(row, 8, QTableWidgetItem(credit_account))  # Credit Account
@@ -7171,9 +7178,7 @@ class MainWindow(QWidget):
                     elif header == "Credit Account":
                         temp_row_data["credit_account"] = value
 
-                # A row only counts as real data if it identifies an entity -
-                # Deduction Method is a dropdown that's never blank (it defaults
-                # to its first option), so it can't be used to detect a blank row.
+                # A row only counts as real data if it identifies an entity.
                 if temp_row_data.get("entity_code") or temp_row_data.get("entity_name"):
                     penalty_items.append(temp_row_data)
 
@@ -7355,9 +7360,19 @@ class MainWindow(QWidget):
             elif isinstance(widget, QDateTimeEdit):
                 widget.setDateTime(datetime.now())
             elif isinstance(widget, QTableWidget):
-                for row in range(widget.rowCount()):
-                    for col in range(widget.columnCount()):
-                        widget.setItem(row, col, QTableWidgetItem(""))
+                if field_name == "penalty_charges":
+                    widget.setRowCount(3)
+                    for row in range(widget.rowCount()):
+                        widget.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+                        for col in (1, 2, 3):
+                            widget.setItem(row, col, self._make_penalty_readonly_item())
+                        widget.setCellWidget(row, 5, self._make_penalty_deduction_method_combo())
+                        for col in (4, 6, 7, 8):
+                            widget.setItem(row, col, QTableWidgetItem(""))
+                else:
+                    for row in range(widget.rowCount()):
+                        for col in range(widget.columnCount()):
+                            widget.setItem(row, col, QTableWidgetItem(""))
         self.slip_no_combo.clear()
         # setCurrentIndex(0) above resets Branch to its first combo item
         # ("Bedkihal") rather than the required default - put it back to Kundal.
