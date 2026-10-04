@@ -366,6 +366,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "fetch_from": "trip_sheet.token_no",
    "fieldname": "token_no",
    "fieldtype": "Data",
    "label": "Token No."

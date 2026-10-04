@@ -1313,6 +1313,13 @@ class MainWindow(QWidget):
         prefix = self._trip_sheet_prefix_for_season(season_value)
         full_trip_sheet_no = raw_no if raw_no.upper().startswith("TS/") else f"{prefix}{raw_no}"
 
+        # Clear existing form first before fetching new data, keeping the entered trip sheet no and season
+        self.clear_form()
+        if "trip_sheet" in self.form_fields:
+            self.form_fields["trip_sheet"].setText(raw_no)
+        if season_value and "season" in self.form_fields:
+            self.form_fields["season"].setCurrentText(season_value)
+
         try:
             url = f"{self.primary_frappe_site_url}/api/method/quantbit_agriculture_crm.exe_api.get_cane_weight_data"
             headers = {"Accept": "application/json"}
@@ -1860,6 +1867,10 @@ class MainWindow(QWidget):
         slip_no_spin.editingFinished.connect(self.on_slip_no_changed)
 
         auto_token_no_edit = QLineEdit()
+        auto_token_no_edit.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #dc2626; "
+            "background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 4px 6px;"
+        )
         self.form_fields["auto_token_no"] = auto_token_no_edit
 
         token_user_edit = QLineEdit()
@@ -2128,13 +2139,19 @@ class MainWindow(QWidget):
         session_grid = QGridLayout()
         session_grid.setHorizontalSpacing(14)
         session_grid.setVerticalSpacing(8)
+        token_no_edit = field("token_no")
+        token_no_edit.setStyleSheet(
+            "font-size: 13px; font-weight: bold; color: #dc2626; "
+            "background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 4px; padding: 4px 6px;"
+        )
+
         session_fields = [
             ("Season", combo_field("season", ["2026-2027", "2027-2028", "2028-2029", "2029-2030"], "2026-2027")),
             ("Shift", combo_field("shift", ["1st", "2nd", "3rd"], "1st")),
             ("Posting Date", date_field("posting_date")),
             ("Posting Time", time_field("posting_time")),
             ("Factory Day", spin_field("factory_day", 0, 365)),
-            ("Token No", field("token_no")),
+            ("Token No", token_no_edit),
             ("Token Date", date_field("token_date")),
             ("Token Time", time_field("token_time")),
         ]
@@ -2142,7 +2159,10 @@ class MainWindow(QWidget):
             row = idx // 4
             col = (idx % 4) * 2
             lbl = QLabel(label)
-            lbl.setStyleSheet("font-weight: 600; color: #475569;")
+            if label == "Token No":
+                lbl.setStyleSheet("font-weight: 700; color: #dc2626;")
+            else:
+                lbl.setStyleSheet("font-weight: 600; color: #475569;")
             session_grid.addWidget(lbl, row, col)
             session_grid.addWidget(widget, row, col + 1)
             session_grid.setColumnStretch(col + 1, 1)
@@ -4638,6 +4658,9 @@ class MainWindow(QWidget):
     def load_trip_sheet_doc_for_cane_weight(self, doc):
         if not doc:
             return
+
+        # Clear existing form before loading new trip sheet
+        self.clear_form()
 
         # Track last trip sheet used for Cane Weight tab only
         self.current_trip_sheet_doc = dict(doc)

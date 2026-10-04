@@ -530,16 +530,20 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                 if data.get(dt_field) is not None:
                     data[dt_field] = str(data[dt_field])
 
-            # If token_date or token_time were not stored on the Cane Weight doc, fallback to trip sheet
-            if (not data.get("token_date") or not data.get("token_time")) and cw_doc.trip_sheet:
+            # If token_date, token_time, or token_no were not stored on the Cane Weight doc, fallback to trip sheet
+            if (not data.get("token_date") or not data.get("token_time") or not data.get("token_no")) and cw_doc.trip_sheet:
                 ts_token = frappe.db.get_value(
-                    "Trip Sheet", cw_doc.trip_sheet, ["token_date", "token_time"], as_dict=True
+                    "Trip Sheet", cw_doc.trip_sheet, ["token_date", "token_time", "token_no", "auto_token_no"], as_dict=True
                 )
                 if ts_token:
                     if not data.get("token_date") and ts_token.get("token_date"):
                         data["token_date"] = str(ts_token["token_date"])
                     if not data.get("token_time") and ts_token.get("token_time"):
                         data["token_time"] = str(ts_token["token_time"])
+                    if not data.get("token_no") and ts_token.get("token_no"):
+                        data["token_no"] = str(ts_token["token_no"])
+                    if not data.get("auto_token_no") and ts_token.get("auto_token_no"):
+                        data["auto_token_no"] = str(ts_token["auto_token_no"])
 
             status = "Draft" if cw_doc.docstatus == 0 else "Submitted"
 
