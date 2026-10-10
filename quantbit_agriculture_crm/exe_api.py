@@ -41,7 +41,7 @@ def get_data(trip_sheet, season, posting_date, posting_time):
     
 
     if not trip_data:
-        frappe.throw(f"No Trip Sheet found with name {trip_sheet}")
+        frappe.throw(f"No Trip Sheet found with name {trip_sheet}<br>{trip_sheet} नावाची फील्ड स्लिप सापडली नाही.")
 
     t = trip_data[0]
     data_key = {}
@@ -466,7 +466,7 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
         )
 
         if not trip_sheet_doc:
-            frappe.throw(f"Trip Sheet {trip_sheet} not found for season {season}.")
+            frappe.throw(f"Trip Sheet {trip_sheet} not found for season {season}.<br>हंगाम {season} साठी {trip_sheet} फील्ड स्लिप सापडली नाही.")
 
         # Trip Sheet must be Submitted Token before Cane Weight
         if trip_sheet_doc.status not in ["Submitted Token", "Gross Weight Done"]:
@@ -474,12 +474,17 @@ def get_cane_weight_data(trip_sheet, season , posting_date , posting_time):
                 f"Trip Sheet {trip_sheet} is not in 'Submitted Token' or 'Gross Weight Done' status. "
                 f"Current status is '{trip_sheet_doc.status or 'Not Set'}'. "
                 f"Please complete the Auto Token process first."
+                f"<br>फील्ड स्लिप {trip_sheet} 'सबमिट केलेला टोकन' किंवा 'ग्रोस Gross वजन झाले' स्थितीत नाही. "
+                f"सध्याची स्थिती '{trip_sheet_doc.status or 'सेट नाही'}' आहे. "
+                f"कृपया आधी ऑटो टोकन प्रक्रिया पूर्ण करा."
             )
 
         if trip_sheet_doc.status == "Weight Done":
             frappe.throw(
-                f"Trip Sheet {trip_sheet} is already in 'Weight Done' status."
+                f"Trip Sheet {trip_sheet} is already in 'Weight Done' status. "
                 f"Weight is already done for this trip sheet."
+                f"<br>फील्ड स्लिप {trip_sheet} आधीच 'वजन झाले' स्थितीत आहे. "
+                f"या फील्ड स्लिपचे वजन आधीच नोंदवले गेले आहे."
             )
 
         # === 1️⃣ Check if Cane Weight Already Exists ===

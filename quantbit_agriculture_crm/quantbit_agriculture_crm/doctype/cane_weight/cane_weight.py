@@ -89,22 +89,22 @@ class CaneWeight(Document):
 
 	def before_submit(self):
 		if self.gross_weight <= 0:
-			frappe.throw("Gross Weight must be greater than zero.")
+			frappe.throw("Gross Weight must be greater than zero.<br>एकूण वजन शून्यापेक्षा जास्त असणे आवश्यक आहे.")
 		if self.tare_weight <= 0:
-			frappe.throw("Tare Weight must be greater than zero.")
+			frappe.throw("Tare Weight must be greater than zero.<br>रिकाम्या वाहनाचे वजन शून्यापेक्षा जास्त असणे आवश्यक आहे.")
 		if self.gross_weight < self.tare_weight:
-			frappe.throw("Gross Weight must be greater than Tare Weight.")
+			frappe.throw("Gross Weight must be greater than Tare Weight.<br>एकूण वजन रिकाम्या वाहनाच्या वजनापेक्षा जास्त असणे आवश्यक आहे.")
 		if not self.cane_weight or self.cane_weight <= 0:
-			frappe.throw("Cane Weight must be greater than zero.")
+			frappe.throw("Cane Weight must be greater than zero.<br>ऊसाचे वजन शून्यापेक्षा जास्त असणे आवश्यक आहे.")
 
 	def on_submit(self):
 		self.on_submit_status_change()
 
 	def validate_gross_weight(self):
 		if self.gross_weight <= 0:
-			frappe.throw("Gross Weight must be greater than zero.")
+			frappe.throw("Gross Weight must be greater than zero.<br>एकूण वजन शून्यापेक्षा जास्त असणे आवश्यक आहे.")
 		if self.gross_weight < self.tare_weight:
-			frappe.throw("Gross Weight must be greater than Tare Weight.")
+			frappe.throw("Gross Weight must be greater than Tare Weight.<br>एकूण वजन रिकाम्या वाहनाच्या वजनापेक्षा जास्त असणे आवश्यक आहे.")
 		
 
 	def before_save(self):
