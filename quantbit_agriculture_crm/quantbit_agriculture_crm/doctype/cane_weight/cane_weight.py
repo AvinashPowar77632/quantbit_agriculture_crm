@@ -75,6 +75,7 @@ class CaneWeight(Document):
 
 	def validate(self):
 		self.restrict_fuel_to_last_trip_sheet()
+		self.validate_gross_weight()
 
 	def restrict_fuel_to_last_trip_sheet(self):
 		"""Extra Fuel Allocation / Diesel Allocation are only given to the last trip
@@ -99,6 +100,13 @@ class CaneWeight(Document):
 	def on_submit(self):
 		self.on_submit_status_change()
 
+	def validate_gross_weight(self):
+		if self.gross_weight <= 0:
+			frappe.throw("Gross Weight must be greater than zero.")
+		if self.gross_weight < self.tare_weight:
+			frappe.throw("Gross Weight must be greater than Tare Weight.")
+		
+
 	def before_save(self):
 		self.before_save_status_change()
 	
@@ -117,6 +125,7 @@ class CaneWeight(Document):
 		if self.gross_weight > 0 and self.tare_weight <= 0:
 			trip_id= [self.trip_sheet]
 			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="status",status="Gross Weight Done")
+		
 
 	def on_submit_status_change(self):
 		trip_id= [self.trip_sheet]
@@ -124,7 +133,8 @@ class CaneWeight(Document):
 		# Diesel was given against this trip sheet's Auto Token (only the last trip
 		# sheet of a token ever gets a non-zero allocation) - mark it on the Trip Sheet.
 		if flt(self.diesel_allocation) > 0:
-			status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=1)
+			# status_change(doctype="Trip Sheet",docnames=trip_id,status_field="diesel_allocated",status=1)
+			frappe.db.set_value("Trip Sheet",self.trip_sheet,"diesel_allocated",1)
 
 
 @frappe.whitelist()

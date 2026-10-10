@@ -492,6 +492,7 @@ class MainWindow(QWidget):
         self.cane_inward_slip_fields = {}  # Initialize cane inward slip form fields
         self.other_weight_fields = {}  # Initialize other weight form fields
         self.current_cane_weight_doc = None # To store the Cane Weight document if fetched for update
+        self._cane_weight_doc_status = "" # Status of Cane Weight form: "", "Draft", "Submitted"
         self.current_trip_sheet_doc = None  # To store last selected Trip Sheet document for Cane Weight
         self.current_fuel_sale_doc = None
         self.current_auto_token_doc = None
@@ -736,8 +737,10 @@ class MainWindow(QWidget):
 
     def _setup_cane_weight_shortcuts(self):
         """Keyboard shortcuts for the Cane Weight tab's actions - active window-wide
-        (not just while that tab is focused), same as any regular menu shortcut."""
-        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_form)
+        (not just while that tab is focused), same as any regular menu shortcut.
+        Ctrl+S automatically determines whether to Save (draft) or Submit based on
+        the Cane Weight form's status. Ctrl+Shift+S is also retained for direct submission."""
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_or_submit_form)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self.submit_form)
         # Clear Form has several shortcuts.
         for clear_key in ("Ctrl+M", "Ctrl+Q", "Ctrl+W", "Ctrl+N"):
@@ -2428,6 +2431,7 @@ class MainWindow(QWidget):
 
         self.cane_weight_submit_btn = QPushButton("🚀 Submit Form")
         self.cane_weight_submit_btn.setObjectName("submitBtn")
+        self.cane_weight_submit_btn.setToolTip("Submit Cane Weight form (Ctrl+S or Ctrl+Shift+S)")
         self.cane_weight_submit_btn.clicked.connect(self.submit_form)
         self.cane_weight_submit_btn.setMinimumHeight(38)
         self.cane_weight_submit_btn.setMinimumWidth(130)
@@ -2435,6 +2439,7 @@ class MainWindow(QWidget):
 
         self.cane_weight_save_btn = QPushButton("💾 Save Form")
         self.cane_weight_save_btn.setObjectName("saveBtn")
+        self.cane_weight_save_btn.setToolTip("Save Cane Weight form as Draft (Ctrl+S)")
         self.cane_weight_save_btn.clicked.connect(self.save_form)
         self.cane_weight_save_btn.setMinimumHeight(38)
         self.cane_weight_save_btn.setMinimumWidth(130)
@@ -4766,7 +4771,9 @@ class MainWindow(QWidget):
 
             self.current_cane_weight_doc = record
             self.populate_form_from_cane_weight(record)
-            self.output.append(f"[Cane Weight Records] Loaded document '{doc_name}' into form.")
+            doc_status = "Submitted" if record.get("docstatus") == 1 else ("Draft" if record.get("docstatus") == 0 else "")
+            self._update_cane_weight_action_buttons(doc_status)
+            self.output.append(f"[Cane Weight Records] Loaded document '{doc_name}' into form (status: {doc_status or 'New'}).")
             return True
 
         except requests.exceptions.HTTPError as e:
@@ -7286,8 +7293,8 @@ class MainWindow(QWidget):
         for btn in self._cane_weight_action_buttons():
             if btn is not None:
                 btn.setEnabled(True)
-        self.cane_weight_submit_btn.setText("Submit Form")
-        self.cane_weight_save_btn.setText("Save Form")
+        self.cane_weight_submit_btn.setText("🚀 Submit Form")
+        self.cane_weight_save_btn.setText("💾 Save Form")
 
     def _on_cane_weight_send_ok(self, result, action_label, clear_after, send_payload):
         self._reset_cane_weight_action_buttons()
@@ -7328,6 +7335,68 @@ class MainWindow(QWidget):
         self._reset_cane_weight_action_buttons()
         self.output.append(f"[Frappe Error] {error_msg}")
         QMessageBox.critical(self, "Failed", f"Failed to send to Frappe:\n\n{error_msg}")
+
+    def get_cane_weight_status(self):
+        """Returns the current document status of the Cane Weight form:
+        'Draft', 'Submitted', or '' (New/Unsaved)."""
+        doc_status = getattr(self, "_cane_weight_doc_status", None)
+        if doc_status:
+            return doc_status
+
+        # Fallback check on current_cane_weight_doc if available
+        if isinstance(getattr(self, "current_cane_weight_doc", None), dict):
+            ds = self.current_cane_weight_doc.get("docstatus")
+            if ds == 1:
+                return "Submitted"
+            elif ds == 0:
+                return "Draft"
+
+        # Fallback check on action button visibility
+        submit_btn = getattr(self, "cane_weight_submit_btn", None)
+        save_btn = getattr(self, "cane_weight_save_btn", None)
+        if submit_btn is not None and submit_btn.isVisible() and (save_btn is None or not save_btn.isVisible()):
+            return "Draft"
+        if submit_btn is not None and not submit_btn.isVisible() and save_btn is not None and not save_btn.isVisible():
+            if getattr(self, "_is_existing_cane_weight", False):
+                return "Submitted"
+
+        return ""
+
+    def save_or_submit_form(self):
+        """Unified Ctrl+S shortcut handler:
+        Automatically determines whether to Save (as draft) or Submit the Cane Weight form
+        based on the status of the form:
+        - If status is 'Draft': Executes submit_form()
+        - If status is 'Submitted': Displays notification that entry is already submitted
+        - If status is New / '' (no Cane Weight doc yet): Executes save_form()
+        """
+        # If a save or submit network worker is actively running, prevent duplicate triggers
+        if getattr(self, "_cane_weight_save_worker", None) and self._cane_weight_save_worker.isRunning():
+            self.output.append("[Ctrl+S] Operation already in progress, please wait...")
+            return
+
+        # If user is on Cane Inward Slip tab (index 3), save inward slip
+        current_tab_index = getattr(self, "main_stack", None).currentIndex() if getattr(self, "main_stack", None) else -1
+        if current_tab_index == 3 and hasattr(self, "save_cane_inward_slip_form"):
+            self.save_cane_inward_slip_form()
+            return
+
+        status = self.get_cane_weight_status()
+        self.output.append(f"[Ctrl+S] Cane Weight Form status identified as: '{status or 'New'}'")
+
+        if status == "Draft":
+            self.output.append("[Ctrl+S] Form status is 'Draft' -> Triggering Submit Form...")
+            self.submit_form()
+        elif status == "Submitted":
+            self.output.append("[Ctrl+S] Form status is 'Submitted' -> Entry is already finalized.")
+            QMessageBox.information(
+                self,
+                "Already Submitted",
+                "This Cane Weight entry has already been submitted and finalized."
+            )
+        else:
+            self.output.append("[Ctrl+S] Form status is 'New' -> Triggering Save Form...")
+            self.save_form()
 
     def submit_form(self):
         """Submit Cane Weight form to Frappe (creates a new entry as submitted, or finalizes one
